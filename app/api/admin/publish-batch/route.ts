@@ -345,6 +345,7 @@ export async function POST(request: Request) {
       dbUpdateWarning?: string;
     }[] = [];
 
+    // 複数 LP は 1 件ずつ await（並列にしない。Vercel 時間制限・API 負荷対策）
     for (const t of targets) {
       const pub = await publishProjectToNextSite(supabase, t.slug, {
         projectId: t.id,

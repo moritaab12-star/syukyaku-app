@@ -17,7 +17,7 @@ WordPress REST への投稿は **廃止済み**。LP の正は Next の `/p/{slu
 | `app/lib/publish-project-next.ts` | `publishProjectToNextSite` — `publish_status`・`wp_url`（canonical URL・列名はレガシー）・`wp_page_id: null` |
 | `app/api/admin/publish-batch/route.ts` | 管理向け一括 → 内部で Next 公開 |
 | `app/api/admin/publish-candidates/route.ts` | 本番公開テスト用の候補取得（`publish_status` が draft / null 等。旧「未 WP」条件は撤去済み） |
-| `app/api/cron/publish-one/route.ts` | Vercel Cron — `publishProjectToNextSite` を直接呼ぶ（`/api/wordpress/post` は存在しない） |
+| `app/api/cron/publish-one/route.ts` | HTTP GET で 1 件公開。`publishProjectToNextSite` を呼ぶ（Vercel Cron は未使用でも可） |
 | `app/lib/publish-scheduler.ts` | 候補取得・1 件ピック（`wp_page_id` 条件は撤去済み） |
 
 ### 1.2 LP 表示・スタイル（Next 正）

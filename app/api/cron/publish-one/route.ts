@@ -18,10 +18,12 @@ function isAuthorized(request: Request): boolean {
 export const dynamic = 'force-dynamic';
 
 /**
- * 定期実行（2時間ごと想定）で、下書き LP を 1 件だけ Next 公開（DB 更新）する。
+ * 下書き LP を 1 件だけ Next 公開（DB 更新）する HTTP GET。
+ * Vercel Cron には依存しない。手動、または外部スケジューラ（GitHub Actions 等）からこの URL を叩く想定。
+ * `CRON_SECRET` を設定した場合はリクエストヘッダ `x-cron-secret` が一致する必要がある（未設定時は検証スキップ）。
  *
  * フロー:
- * 1. 候補取得 → 1 件選ぶ
+ * 1. 候補取得 → 1 件選ぶ（DB 読み取りは直列で負荷を抑える）
  * 2. publishing に claim
  * 3. publishProjectToNextSite（WP は使わない）
  * 4. 失敗時は retry_wait / failed
@@ -33,10 +35,8 @@ export async function GET(request: Request) {
 
   const supabase = createSupabaseAdminClient();
 
-  const [candidates, recent] = await Promise.all([
-    fetchDraftPostCandidates(supabase, { limit: 80 }),
-    fetchRecentPublished(supabase, { limit: 20 }),
-  ]);
+  const candidates = await fetchDraftPostCandidates(supabase, { limit: 80 });
+  const recent = await fetchRecentPublished(supabase, { limit: 20 });
 
   const picked = pickOneScheduledPostTarget(candidates, recent);
   if (!picked) {
