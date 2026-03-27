@@ -1,0 +1,12 @@
+/* LP: Next 上の見た目はこれのみ（dev/本番で同じバンドル経路）。 */
+@import './styles/lp-body.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}

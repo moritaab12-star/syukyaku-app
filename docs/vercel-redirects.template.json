@@ -1,0 +1,12 @@
+[
+  {
+    "source": "/OLD_PATH_REPLACE",
+    "destination": "/p/NEXT_SLUG_REPLACE",
+    "permanent": true
+  },
+  {
+    "source": "/legacy-prefix/:slug",
+    "destination": "/p/:slug",
+    "permanent": true
+  }
+]

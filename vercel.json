@@ -1,0 +1,10 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/publish-one",
+      "schedule": "0 8-22/2 * * *"
+    }
+  ],
+  "redirects": []
+}
+
