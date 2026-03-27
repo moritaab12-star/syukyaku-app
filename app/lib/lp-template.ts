@@ -16,6 +16,10 @@ import type { RelatedLink } from './related-links';
 import { buildPillarSlugBase, buildPillarTitle } from './pillar';
 import { deriveLpBlockSeed } from './lp-prng-seed';
 import { applyLpTemplateTextVariations } from './lp-text-variation';
+import {
+  resolveLpIndustryTone,
+  type LpIndustryTone,
+} from './lp-industry';
 
 export type LpViewModel = {
   headline: string;
@@ -48,6 +52,8 @@ export type LpViewModel = {
    * バリエーションゾーン: seed 付きテンプレからのみ設定する。
    */
   diagnosisSectionTitleOverride?: string;
+  /** LP 本文の業種トーン（テンプレ文言の差し替えに使用） */
+  industryTone: LpIndustryTone;
 };
 
 /**
@@ -90,6 +96,8 @@ export type BuildLpViewModelOpts = {
   relatedLinks?: RelatedLink[];
   /** ピラー記事へのリンクを表示するか（デフォルト: true） */
   includePillarLink?: boolean;
+  /** projects.industry_key。未設定時は service から推定 */
+  industryKey?: string | null;
 };
 
 function resolveAreaName(
@@ -159,6 +167,8 @@ export function buildLpViewModel(
       ? opts.serviceOverride.trim()
       : '') || facts.industry || facts.businessName || '{{service_name}}';
 
+  const industryTone = resolveLpIndustryTone(opts.industryKey ?? null, serviceName);
+
   const intent = detectSearchIntent(opts.keywordOverride);
 
   // 固定ゾーン: facts / 会社・エリア・サービス名の実体（raw_answers・company_info 由来）
@@ -192,33 +202,91 @@ export function buildLpViewModel(
       `${facts.achievementNumbers[0]}件以上`) ||
     '累計実績 非公開';
 
-  const priceRows =
-    facts.achievementNumbers.length > 0
+  const priceRows = (() => {
+    const ind = facts.industry || 'サービス';
+    if (industryTone === 'garden') {
+      return facts.achievementNumbers.length > 0
+        ? [
+            {
+              label: '剪定・お手入れ（目安）',
+              price: '¥{{price_basic}}',
+              note: `${areaName}エリアの庭木の状態により異なります`,
+            },
+            {
+              label: '高木・まとめて対応',
+              price: '¥{{price_plus}}',
+              note: '範囲・本数によりお見積もりします',
+            },
+          ]
+        : [
+            {
+              label: 'お見積り',
+              price: '¥{{price_basic}}',
+              note: `${areaName}の剪定・お手入れの参考価格`,
+            },
+          ];
+    }
+    if (
+      industryTone === 'reform' ||
+      industryTone === 'roof' ||
+      industryTone === 'exterior'
+    ) {
+      return facts.achievementNumbers.length > 0
+        ? [
+            {
+              label: '標準工事（目安）',
+              price: '¥{{price_basic}}',
+              note: `${areaName}の一般的な${ind}工事の目安`,
+            },
+            {
+              label: '内容を広げた場合',
+              price: '¥{{price_plus}}',
+              note: '範囲・材質によりお見積もりします',
+            },
+          ]
+        : [
+            {
+              label: 'お見積り',
+              price: '¥{{price_basic}}',
+              note: `${areaName}の${ind}の参考価格`,
+            },
+          ];
+    }
+    return facts.achievementNumbers.length > 0
       ? [
           {
-            label: 'スタンダードプラン',
+            label: '標準（目安）',
             price: '¥{{price_basic}}',
-            note: `${areaName}の一般的な${facts.industry || 'サービス'}向け`,
+            note: `${areaName}の一般的な${ind}向け`,
           },
           {
-            label: '安心サポートプラン',
+            label: 'サポート重視',
             price: '¥{{price_plus}}',
-            note: 'アフターサポートや保証を重視したプラン',
+            note: 'フォローや保証を重視した内容',
           },
         ]
       : [
           {
             label: '目安料金',
             price: '¥{{price_basic}}',
-            note: `${areaName}の${facts.industry || 'サービス'}の参考価格`,
+            note: `${areaName}の${ind}の参考価格`,
           },
         ];
+  })();
 
   const faqItems: { q: string; a: string }[] = [];
   if (facts.painKeywords[0]) {
+    const painAnswer =
+      industryTone === 'garden'
+        ? `A. はい。${facts.solutions[0] || '樹種と敷地に合わせて、剪定やお手入れの進め方をご提案します。'}`
+        : industryTone === 'reform' ||
+            industryTone === 'roof' ||
+            industryTone === 'exterior'
+          ? `A. はい。${facts.solutions[0] || '現地の状況に合わせて、工事内容とお見積もりをご提示します。'}`
+          : `A. はい。${facts.solutions[0] || 'お客様の状況に合わせてご提案します。'}`;
     faqItems.push({
       q: `Q. ${facts.painKeywords[0]} という悩みにも対応できますか？`,
-      a: `A. はい。${facts.solutions[0] || 'お客様の状況に合わせて最適なプランをご提案します。'}`,
+      a: painAnswer,
     });
   }
   faqItems.push(
@@ -258,6 +326,7 @@ export function buildLpViewModel(
     faqItems,
     diagnosisMode:
       opts.projectType === 'saas' ? 'consultation' : 'diagnosis',
+    industryTone,
   };
 
   const view = applyLpTemplateTextVariations(baseView, blockSeed);

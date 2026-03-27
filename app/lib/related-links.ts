@@ -23,26 +23,11 @@ export type RelatedProjectRow = {
   keyword?: string | null;
   intent?: string | null;
   publish_status?: string | null;
+  industry_key?: string | null;
 };
 
 function normalizeText(s: string | null | undefined): string {
   return (s ?? '').trim();
-}
-
-function tokenizeService(service: string): string[] {
-  return service
-    .split(/[\s/・、,，]+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
-}
-
-function serviceSimilarity(a: string, b: string): number {
-  const ta = new Set(tokenizeService(a));
-  const tb = new Set(tokenizeService(b));
-  if (ta.size === 0 || tb.size === 0) return 0;
-  let inter = 0;
-  for (const x of ta) if (tb.has(x)) inter++;
-  return inter / Math.max(ta.size, tb.size);
 }
 
 function mulberry32(seed: number) {
@@ -94,6 +79,22 @@ export function buildAnchorTitle(input: {
   return base.length > 22 ? base.slice(0, 22) : base;
 }
 
+/**
+ * 関連LPの採用ルール（後方互換）:
+ * - 必須: 同一 `area` かつ同一 `service`（trim 後の文字列一致）。
+ * - `industry_key` が current と候補の両方で非 NULL のときは、値が一致する行のみ。
+ * - 片方または両方が NULL のときは、area+service 一致のみでよい（従来どおり）。
+ */
+export function passesRelatedIndustryGate(
+  currentIndustryKey: string | null,
+  row: Pick<RelatedProjectRow, 'industry_key'>,
+): boolean {
+  const a = normalizeText(currentIndustryKey) || null;
+  const b = normalizeText(row.industry_key) || null;
+  if (a && b) return a === b;
+  return true;
+}
+
 export async function fetchRelatedProjectRows(
   supabase: SupabaseClient,
   current: {
@@ -102,10 +103,11 @@ export async function fetchRelatedProjectRows(
     area: string | null;
     service: string | null;
     intent: string | null;
+    industry_key?: string | null;
   },
   opts?: { min?: number; max?: number; seed?: number },
 ): Promise<RelatedProjectRow[]> {
-  const min = Math.max(0, opts?.min ?? 3);
+  const min = Math.max(0, opts?.min ?? 0);
   const max = Math.max(min, opts?.max ?? 5);
   const seed =
     typeof opts?.seed === 'number'
@@ -115,58 +117,41 @@ export async function fetchRelatedProjectRows(
   const currentId = current.id;
   const area = normalizeText(current.area);
   const service = normalizeText(current.service);
-  const intent = normalizeText(current.intent);
+  const currentIndustryKey = normalizeText(current.industry_key) || null;
+
+  if (!area || !service) {
+    return [];
+  }
 
   const base = () =>
     supabase
       .from('projects')
       .select(
-        'id, slug, project_type, company_name, raw_answers, company_info, area, service, target_area, areas, keyword, intent, publish_status',
+        'id, slug, project_type, company_name, raw_answers, company_info, area, service, target_area, areas, keyword, intent, publish_status, industry_key',
       )
       .eq('publish_status', 'published')
       .not('slug', 'is', null)
-      .neq('id', currentId);
-
-  const picked = new Map<string, RelatedProjectRow>();
-
-  // 1) 同じ service かつ同じ area
-  if (service && area) {
-    const { data } = await base()
-      .eq('service', service)
+      .neq('id', currentId)
       .eq('area', area)
-      .limit(12);
-    (data ?? []).forEach((r: any) => picked.set(r.id, r));
+      .eq('service', service)
+      .limit(40);
+
+  const { data, error } = await base();
+  if (error) {
+    console.error('[fetchRelatedProjectRows]', error);
+    return [];
   }
 
-  // 2) 同じ service で intent が異なる
-  if (service && picked.size < max) {
-    const q = base().eq('service', service);
-    const { data } = intent
-      ? await q.neq('intent', intent).limit(18)
-      : await q.limit(18);
-    (data ?? []).forEach((r: any) => picked.set(r.id, r));
-  }
+  let out = ((data ?? []) as RelatedProjectRow[]).filter((r) =>
+    passesRelatedIndustryGate(currentIndustryKey, r),
+  );
 
-  // 3) 同じ area で service が近い（トークン一致率）
-  if (area && picked.size < max) {
-    const { data } = await base().eq('area', area).limit(30);
-    const rows = (data ?? []) as RelatedProjectRow[];
-    rows.sort((a, b) => {
-      const sa = serviceSimilarity(service, normalizeText(a.service));
-      const sb = serviceSimilarity(service, normalizeText(b.service));
-      return sb - sa;
-    });
-    rows.slice(0, 20).forEach((r) => picked.set(r.id, r));
-  }
+  out = out.filter((r) => r.slug && r.slug.length > 0);
 
-  let out = Array.from(picked.values()).filter((r) => r.slug && r.slug.length > 0);
-
-  // 多い場合はシャッフルして分散
   if (out.length >= 6) {
     out = shuffleInPlace(out, seed);
   }
 
-  // 3〜5件程度
-  return out.slice(0, Math.min(max, Math.max(min, out.length)));
+  const cap = Math.min(max, Math.max(min, out.length));
+  return out.slice(0, cap);
 }
-

@@ -2,6 +2,7 @@ import type { CompanyInfoDisplay } from './companyInfoFormatter';
 import type { LpViewModel } from './lp-template';
 import { buildLocalBusinessJsonLd } from './buildLocalBusinessJsonLd';
 import { LP_REVEAL_ATTR } from './lpRevealAttr';
+import { getLpHtmlSectionCopy } from './lp-industry';
 
 function esc(s: string): string {
   return s
@@ -121,11 +122,34 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
     }
   })();
 
+  const sectionCopy = getLpHtmlSectionCopy(view.industryTone ?? 'general');
+  const solutionLeadHtml = esc(
+    sectionCopy.solutionLead.replace(/\{area\}/g, view.areaName),
+  );
+  const servicesSectionTitle = `${esc(view.serviceName)}の${esc(sectionCopy.servicesHeadingSuffix)}`;
+  const serviceCardsHtml = sectionCopy.serviceCards
+    .map(
+      (c) =>
+        `<article class="lp-card"><h3 class="lp-card__title">${esc(c.title)}</h3><p class="lp-card__text">${esc(c.text)}</p></article>`,
+    )
+    .join('');
+  const priceHeadHtml = sectionCopy.priceHeadLabels
+    .map((label) => `<span>${esc(label)}</span>`)
+    .join('');
+  const flowStepsHtml = sectionCopy.flowSteps
+    .map(
+      (step, i) =>
+        `<li class="lp-flow__step"><div class="lp-flow__step-number">${i + 1}</div><div class="lp-flow__step-body"><h3 class="lp-flow__step-title">${esc(step.title)}</h3><p class="lp-flow__step-text">${esc(step.text)}</p></div></li>`,
+    )
+    .join('');
+
+  /** `buildPublicLpUrl`（`seo-indexing.ts`）と同形。`pageUrl` 由来の origin では絶対 URL、未指定時は相対。 */
   const toInternalHref = (slug: string): string => {
     const s = (slug || '').trim();
     if (!s) return '#';
-    if (wpOrigin) return `${wpOrigin}/${encodeURIComponent(s)}/`;
-    return `/p/${encodeURIComponent(s)}`;
+    const path = `/p/${encodeURIComponent(s)}/`;
+    if (wpOrigin) return `${wpOrigin}${path}`;
+    return path;
   };
 
   function hash32(s: string): number {
@@ -200,7 +224,7 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
       ? `<section class="lp-section lp-section--muted"${LP_REVEAL_ATTR} id="related-pages">
     <div class="lp-container">
       <h2 class="lp-section__title">あわせて読みたい</h2>
-      <p class="lp-section__lead">同じ地域・同じサービスの関連情報をまとめました。</p>
+      <p class="lp-section__lead">同じ地域で、同じサービス名の公開LPをまとめました。</p>
       ${
         pillarLink && pillarLink.slug
           ? `<div class="lp-cards lp-cards--services lp-cards--mb">
@@ -258,15 +282,17 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
     </div>
   </section>`;
 
+  const solutionBulletsHtml = sectionCopy.solutionBullets
+    .map((t) => `<li class="lp-list__item">${esc(t)}</li>`)
+    .join('');
+
   const solutionSection = `<section class="lp-section"${LP_REVEAL_ATTR} id="solution">
     <div class="lp-container">
       <h2 class="lp-section__title">そのお悩み、${esc(view.serviceName)}が解決します</h2>
       <div class="lp-solution">
-        <p class="lp-solution__text">${esc(view.areaName)}エリアに特化したサポートで、お客様一人ひとりの状況に合わせた最適なプランをご提案します。</p>
+        <p class="lp-solution__text">${solutionLeadHtml}</p>
         <ul class="lp-list lp-list--check">
-          <li class="lp-list__item">専門スタッフが現状を丁寧にヒアリング</li>
-          <li class="lp-list__item">複数の選択肢から最適なプランをご提示</li>
-          <li class="lp-list__item">導入後も継続的なフォローで安心</li>
+          ${solutionBulletsHtml}
         </ul>
       </div>
     </div>
@@ -274,21 +300,19 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
 
   const servicesSection = `<section class="lp-section lp-section--muted"${LP_REVEAL_ATTR} id="services">
     <div class="lp-container">
-      <h2 class="lp-section__title">${esc(view.serviceName)}のサービス内容</h2>
+      <h2 class="lp-section__title">${servicesSectionTitle}</h2>
       <div class="lp-cards lp-cards--services">
-        <article class="lp-card"><h3 class="lp-card__title">基本プラン</h3><p class="lp-card__text">はじめての方でも安心してお任せいただける、標準的なプランです。</p></article>
-        <article class="lp-card"><h3 class="lp-card__title">充実サポートプラン</h3><p class="lp-card__text">アフターフォローやサポートを重視した方向けのプランです。</p></article>
-        <article class="lp-card"><h3 class="lp-card__title">カスタムプラン</h3><p class="lp-card__text">課題や予算に合わせて、内容を柔軟にカスタマイズできます。</p></article>
+        ${serviceCardsHtml}
       </div>
     </div>
   </section>`;
 
   const priceSection = `<section class="lp-section"${LP_REVEAL_ATTR} id="price">
     <div class="lp-container">
-      <h2 class="lp-section__title">料金の目安</h2>
-      <p class="lp-section__lead">状況により変動しますが、まずは目安としてご確認ください。</p>
+      <h2 class="lp-section__title">${esc(sectionCopy.priceTitle)}</h2>
+      <p class="lp-section__lead">${esc(sectionCopy.priceLead)}</p>
       <div class="lp-price-table">
-        <div class="lp-price-table__head"><span>プラン名</span><span>目安料金</span><span>内容</span></div>
+        <div class="lp-price-table__head">${priceHeadHtml}</div>
         <div class="lp-price-table__body">${priceRows}</div>
       </div>
       <p class="lp-price-table__note">※上記はあくまで目安です。現状を確認したうえで正式にお見積もりいたします。</p>
@@ -316,11 +340,9 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
 
   const flowSection = `<section class="lp-section"${LP_REVEAL_ATTR} id="flow">
     <div class="lp-container">
-      <h2 class="lp-section__title">お問い合わせから完了までの流れ</h2>
+      <h2 class="lp-section__title">${esc(sectionCopy.flowTitle)}</h2>
       <ol class="lp-flow">
-        <li class="lp-flow__step"><div class="lp-flow__step-number">1</div><div class="lp-flow__step-body"><h3 class="lp-flow__step-title">お問い合わせ</h3><p class="lp-flow__step-text">フォームまたはLINEから、24時間いつでもお問い合わせいただけます。</p></div></li>
-        <li class="lp-flow__step"><div class="lp-flow__step-number">2</div><div class="lp-flow__step-body"><h3 class="lp-flow__step-title">ヒアリング・ご提案</h3><p class="lp-flow__step-text">現状やご希望を伺い、最適なプランとお見積もりをご提示します。</p></div></li>
-        <li class="lp-flow__step"><div class="lp-flow__step-number">3</div><div class="lp-flow__step-body"><h3 class="lp-flow__step-title">ご契約・実施</h3><p class="lp-flow__step-text">内容にご納得いただいたうえで、ご契約・作業へと進みます。</p></div></li>
+        ${flowStepsHtml}
       </ol>
     </div>
   </section>`;
@@ -420,7 +442,10 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
       blockPainHtml,
       blockStrengthHtml,
       blockStoryHtml,
-      inlineCta('まずは状況を聞かせてください', '最短の進め方と、無理のないプランを一緒に整理します。'),
+      inlineCta(
+        sectionCopy.benefitInlineCta.title,
+        sectionCopy.benefitInlineCta.lead,
+      ),
       servicesSection,
       priceSection,
       flowSection,

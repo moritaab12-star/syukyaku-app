@@ -1,4 +1,5 @@
 import type { LpViewModel } from './lp-template';
+import type { LpIndustryTone } from './lp-industry';
 import { deriveTemplateLayerSeed, mulberry32, pickFrom } from './lp-prng-seed';
 
 /**
@@ -10,15 +11,52 @@ import { deriveTemplateLayerSeed, mulberry32, pickFrom } from './lp-prng-seed';
  *   facts ベースで組んだ見出し本体や Q に埋め込んだ悩みキーワードなど
  */
 
-const SUBHEADLINE_TEMPLATES = (area: string, service: string) =>
+const SUBHEADLINE_GENERAL = (area: string, service: string) =>
   [
     `${area}の${service}でお困りの方へ。経験に基づくご提案で、安心してお任せいただけます。`,
-    `${area}エリアの${service}。丁寧なヒアリングから、最適なプランをご案内します。`,
+    `${area}エリアの${service}。丁寧なヒアリングから、ご希望に沿った内容をご案内します。`,
     `${area}で選ばれる${service}。分かりやすい説明とスムーズな対応を心がけています。`,
     `${area}にお住まいの方、${service}のご相談はお気軽に。初回のご相談からしっかりサポートします。`,
-    `${area}の${service}なら、現場の実情に合わせたご提案が可能です。まずはお問い合わせください。`,
+    `${area}の${service}なら、現場の実情に合わせたご提案が可能です。まずはご連絡ください。`,
     `${area}周辺の${service}。お客様の状況に合わせ、無理のないご提案をいたします。`,
   ] as const;
+
+const SUBHEADLINE_GARDEN = (area: string, service: string) =>
+  [
+    `${area}の${service}。剪定やお手入れのタイミングも含め、ご相談に応じます。`,
+    `${area}エリアの庭木・植え込み。樹種に合わせたお手入れをご提案します。`,
+    `${area}でお庭のお悩みなら。現地を見ながら優先順位を一緒に決めます。`,
+    `${area}の${service}なら、近隣や安全の配慮も含めてご説明します。`,
+    `${area}にお住まいの方へ。伸びすぎ・枯れ・倒木の不安もお気軽にご相談ください。`,
+    `${area}周辺の${service}。季節に合わせた剪定のご提案が可能です。`,
+  ] as const;
+
+const SUBHEADLINE_BUILD = (area: string, service: string) =>
+  [
+    `${area}の${service}。現地調査のうえ、工事内容とお見積もりをご提示します。`,
+    `${area}エリアの施工。範囲・材質に合わせて、分かりやすくご説明します。`,
+    `${area}でリフォーム・修繕をお考えの方へ。無理のない工程でご提案します。`,
+    `${area}の${service}なら、雨風や劣化の傾向も踏まえてご相談に応じます。`,
+    `${area}にお住まいの方、まずは現状のお悩みからお聞かせください。`,
+    `${area}周辺の${service}。お見積もり・ご相談から丁寧に対応します。`,
+  ] as const;
+
+function subheadlinesForTone(
+  area: string,
+  service: string,
+  tone: LpIndustryTone,
+): readonly string[] {
+  switch (tone) {
+    case 'garden':
+      return SUBHEADLINE_GARDEN(area, service);
+    case 'reform':
+    case 'roof':
+    case 'exterior':
+      return SUBHEADLINE_BUILD(area, service);
+    default:
+      return SUBHEADLINE_GENERAL(area, service);
+  }
+}
 
 const ESTIMATE_FAQ = [
   {
@@ -74,7 +112,11 @@ export function applyLpTemplateTextVariations(
   const tplSeed = deriveTemplateLayerSeed(blockSeed);
   const rng = mulberry32(tplSeed);
 
-  const subs = SUBHEADLINE_TEMPLATES(view.areaName, view.serviceName);
+  const subs = subheadlinesForTone(
+    view.areaName,
+    view.serviceName,
+    view.industryTone,
+  );
   const subheadline = pickFrom(subs, rng) ?? view.subheadline;
 
   const faq = view.faqItems.slice();

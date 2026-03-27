@@ -14,9 +14,18 @@ type PatchBody = {
   resolved_area?: string | null;
   areas?: string[] | null;
   service?: string | null;
+  industry_key?: string | null;
   raw_answers?: unknown;
   company_info?: unknown;
 };
+
+function normalizeIndustryKeyPatch(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v !== 'string') return undefined;
+  const t = v.trim();
+  return t.length > 0 ? t : null;
+}
 
 export async function GET(
   request: Request,
@@ -48,7 +57,7 @@ export async function GET(
     const { data, error } = await supabase
       .from('projects')
       .select(
-        'id, slug, project_type, company_name, status, raw_answers, company_info, area, service, target_area, areas, publish_status, wp_page_id, wp_url, lp_group_id, variation_seed',
+        'id, slug, project_type, company_name, status, raw_answers, company_info, area, service, industry_key, target_area, areas, publish_status, wp_page_id, wp_url, lp_group_id, variation_seed',
       )
       .eq('id', id)
       .maybeSingle();
@@ -115,6 +124,8 @@ export async function PATCH(
         ? body.service.trim()
         : null;
 
+    const industryKeyPatch = normalizeIndustryKeyPatch(body.industry_key);
+
     const supabase = createSupabaseAdminClient();
 
     const { data: existing, error: fetchErr } = await supabase
@@ -153,6 +164,9 @@ export async function PATCH(
       raw_answers: rawAnswers,
       company_info: companyInfo,
     };
+    if (industryKeyPatch !== undefined) {
+      updateRow.industry_key = industryKeyPatch;
+    }
 
     const { data: updated, error: updateErr } = await supabase
       .from('projects')

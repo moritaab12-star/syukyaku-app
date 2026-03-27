@@ -32,7 +32,7 @@ export async function publishProjectToNextSite(
   const slugOrIdTrim = slugOrId.trim();
 
   const selectCols =
-    'id, slug, company_name, project_type, raw_answers, company_info, area, service, target_area, areas, keyword, intent, lp_group_id, variation_seed';
+    'id, slug, company_name, project_type, raw_answers, company_info, area, service, industry_key, target_area, areas, keyword, intent, lp_group_id, variation_seed';
 
   let q = supabase.from('projects').select(selectCols);
 
@@ -84,7 +84,9 @@ export async function publishProjectToNextSite(
     intent?: string | null;
     lp_group_id?: string | null;
     variation_seed?: number | null;
+    industry_key?: string | null;
   };
+
 
   const relatedRows = await fetchRelatedProjectRows(
     supabase,
@@ -94,6 +96,7 @@ export async function publishProjectToNextSite(
       area: proj.area ?? null,
       service: proj.service ?? null,
       intent: proj.intent ?? null,
+      industry_key: proj.industry_key ?? null,
     },
     { min: 3, max: 5 },
   );
@@ -131,6 +134,7 @@ export async function publishProjectToNextSite(
     areasList: proj.areas ?? undefined,
     serviceOverride: proj.service ?? undefined,
     keywordOverride: proj.keyword ?? undefined,
+    industryKey: proj.industry_key ?? null,
     relatedLinks,
     projectStableId: proj.id,
     lpGroupId: proj.lp_group_id ?? undefined,

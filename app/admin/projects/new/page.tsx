@@ -65,6 +65,8 @@ function NewProjectPageContent() {
   const [openBlock, setOpenBlock] = useState<number | null>(0);
   const [targetAreas, setTargetAreas] = useState('');
   const [targetServices, setTargetServices] = useState('');
+  /** 関連LP「あわせて読みたい」用。任意。DB projects.industry_key */
+  const [industryKey, setIndustryKey] = useState('');
 
   const [saasName, setSaasName] = useState('');
   const [saasTarget, setSaasTarget] = useState('');
@@ -172,6 +174,7 @@ function NewProjectPageContent() {
           company_name?: string | null;
           area?: string | null;
           service?: string | null;
+          industry_key?: string | null;
           areas?: string[] | null;
         };
         if (p.project_type === 'saas') {
@@ -193,6 +196,9 @@ function NewProjectPageContent() {
               : '',
         );
         setTargetServices(typeof p.service === 'string' ? p.service : '');
+        setIndustryKey(
+          typeof p.industry_key === 'string' ? p.industry_key : '',
+        );
 
         const info = (p.company_info ?? {}) as Partial<CompanyInfoForm>;
         setCompanyInfo({
@@ -283,6 +289,7 @@ function NewProjectPageContent() {
           company_name?: string | null;
           area?: string | null;
           service?: string | null;
+          industry_key?: string | null;
           areas?: string[] | null;
           variation_seed?: number | null;
           lp_group_id?: string | null;
@@ -303,6 +310,9 @@ function NewProjectPageContent() {
               : '',
         );
         setTargetServices(typeof p.service === 'string' ? p.service : '');
+        setIndustryKey(
+          typeof p.industry_key === 'string' ? p.industry_key : '',
+        );
 
         const info = (p.company_info ?? {}) as Partial<CompanyInfoForm>;
         setCompanyInfo({
@@ -360,7 +370,7 @@ function NewProjectPageContent() {
     setRawAnswers((prev) => ({ ...prev, [id]: value }));
   }, []);
 
-  /** ターゲットエリア・サービス欄、なければ q11 から先頭エリアを推定 */
+  /** ターゲットエリア・サービス欄、なければ q11 から先頭エリアを推定。先頭の対応サービスが自動生成の業種コンテキストになる。 */
   const getSuggestAreaService = useCallback(() => {
     const areaFirst =
       targetAreas.trim().split(/[,、，]/)[0]?.trim() ||
@@ -395,6 +405,7 @@ function NewProjectPageContent() {
           questionLabel,
           area,
           service,
+          otherAnswers: rawAnswers,
           regenerate: mode === 'regenerate',
           variationNonce:
             mode === 'regenerate'
@@ -537,6 +548,7 @@ function NewProjectPageContent() {
       resolved_area: resolvedArea,
       areas: areasArray,
       service: serviceInput,
+      industry_key: industryKey.trim() || null,
       raw_answers: rawAnswersPayload,
       company_info: companyInfoPayload,
       ...(effectiveLpGroupId ? { lp_group_id: effectiveLpGroupId } : {}),
@@ -555,6 +567,7 @@ function NewProjectPageContent() {
             resolved_area: resolvedArea,
             areas: areasArray,
             service: serviceInput,
+            industry_key: industryKey.trim() || null,
             raw_answers: rawAnswersPayload,
             company_info: companyInfoPayload,
           }),
@@ -626,6 +639,7 @@ function NewProjectPageContent() {
       setRawAnswers(getInitialRawAnswers());
       setTargetAreas('');
       setTargetServices('');
+      setIndustryKey('');
     } catch (err) {
       console.error(err);
       const anyErr = err as any;
@@ -1022,6 +1036,21 @@ function NewProjectPageContent() {
                     />
                   </div>
                 ))}
+              </div>
+              <div className="mt-4 space-y-2">
+                <label className={labelClass}>
+                  業種キー（任意・関連LP用）
+                </label>
+                <input
+                  type="text"
+                  value={industryKey}
+                  onChange={(e) => setIndustryKey(e.target.value)}
+                  placeholder="例: garden / insurance / roof（空欄なら service のみで関連を判定）"
+                  className={inputClass}
+                />
+                <p className="text-xs text-slate-500">
+                  「あわせて読みたい」に載せる公開LPを業種ごとに分けたいとき、同じ略号を入れた行同士だけが関連候補になります。両方に値がある場合のみ一致が必須です。
+                </p>
               </div>
             </section>
           )}

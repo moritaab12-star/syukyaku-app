@@ -91,7 +91,7 @@ export function buildPillarHtml(vm: PillarViewModel): string {
       ${vm.relatedLps
         .slice(0, 10)
         .map((l) => {
-          const href = `/p/${encodeURIComponent(l.slug)}`;
+          const href = `/p/${encodeURIComponent(l.slug)}/`;
           return `<article class="lp-card">
         <h3 class="lp-card__title"><a href="${esc(href)}">${esc(l.title)}</a></h3>
         <p class="lp-card__text">${esc(l.intent)}</p>

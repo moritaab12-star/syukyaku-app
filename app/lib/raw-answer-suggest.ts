@@ -8,10 +8,20 @@
  * - area / service が薄くても、業種らしい文脈で補完する
  * - q11〜q14 は項目の「目的」に合わせた専用文（下記 purposeDrivenAnswer）
  *
+ * 業種拡張の方針:
+ * - `inferServiceFamily` でキーワード一致したカテゴリ（garden / roof / exterior 等）ごとにテンプレを切替。
+ * - 未マッチは general。屋根・外壁系の語は garden では出さない。
+ *
+ * 他設問コンテキストの方針:
+ * - `otherAnswers` に同一プロジェクトの他回答を渡すと、短い抜粋を末尾に織り込み、空振り感を減らす。
+ * - 長さ・件数は上限付き。LLM は不要。
+ *
  * 将来: `suggestRawAnswer` を API（Dify 等）に差し替え可能。
  */
 
 import { getBlockForQuestionId, type LpBlockKey } from '@/app/config/block-map';
+
+export type ServiceFamily = 'garden' | 'roof' | 'exterior' | 'general';
 
 export type RawAnswerSuggestInput = {
   questionId: string;
@@ -20,6 +30,8 @@ export type RawAnswerSuggestInput = {
   service: string;
   regenerate?: boolean;
   variationNonce?: number;
+  /** 同一プロジェクトの他設問の回答（現在の questionId は内部で除外） */
+  otherAnswers?: Record<string, string>;
 };
 
 function mulberry32(seed: number) {
@@ -53,12 +65,54 @@ function normalizeContext(area: string, service: string) {
   return { area: a, service: sv };
 }
 
-type ServiceFamily = 'roof' | 'exterior' | 'general';
+const MAX_OTHER_ANSWER_ENTRIES = 12;
+const MAX_CHARS_PER_OTHER_ANSWER = 100;
+const MAX_TOTAL_CONTEXT_SNIPPET = 400;
 
-function inferServiceFamily(service: string): ServiceFamily {
+/**
+ * 他設問の回答から短い抜粋を作る（空・現在設問は除外、長さガード）。
+ * 公開しておき、テストや将来の API 層から再利用しやすくする。
+ */
+export function buildOtherAnswersContextSnippet(
+  excludeQuestionId: string,
+  otherAnswers?: Record<string, string>,
+): string {
+  if (!otherAnswers) return '';
+  const parts: string[] = [];
+  const entries = Object.entries(otherAnswers)
+    .filter(([k, v]) => k !== excludeQuestionId && (v ?? '').trim().length > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(0, MAX_OTHER_ANSWER_ENTRIES);
+
+  for (const [, v] of entries) {
+    const t = (v ?? '').trim().replace(/\s+/g, ' ');
+    if (!t) continue;
+    const cut =
+      t.length > MAX_CHARS_PER_OTHER_ANSWER
+        ? `${t.slice(0, MAX_CHARS_PER_OTHER_ANSWER)}…`
+        : t;
+    parts.push(cut);
+  }
+
+  if (parts.length === 0) return '';
+  let joined = parts.join(' ');
+  if (joined.length > MAX_TOTAL_CONTEXT_SNIPPET) {
+    joined = `${joined.slice(0, MAX_TOTAL_CONTEXT_SNIPPET)}…`;
+  }
+  return joined;
+}
+
+export function inferServiceFamily(service: string): ServiceFamily {
   const s = service.toLowerCase();
-  if (/屋根|雨漏り|葺|ガルバ|スレート|瓦/.test(s)) return 'roof';
+  if (/屋根|雨漏り|葺き|葺|ガルバ|スレート|瓦|カバー工法|屋上/.test(s)) return 'roof';
   if (/外壁|塗装|防水|シーリング/.test(s)) return 'exterior';
+  if (
+    /植木|剪定|庭|緑地|造園|植木屋|芝生|草刈|ガーデン|ランドスケープ|樹木|庭師|エクステリア|竹林|抜根|防草|除草|芝はり|緑地管理/.test(
+      s,
+    )
+  ) {
+    return 'garden';
+  }
   return 'general';
 }
 
@@ -154,7 +208,7 @@ function areaForCoverageCopy(raw: string): string {
   return `${a}市`;
 }
 
-/** q12 用：地元の「土地勘」補助（架空の通称でも、具体性のある描写にする） */
+/** q12 用：地元の「土地勘」補助（建築・搬入前提） */
 function pickLocalTerrainHint(seed: number): string {
   return pickTemplate(
     [
@@ -165,6 +219,20 @@ function pickLocalTerrainHint(seed: number): string {
       '旧道沿いで搬入の停め場所が限られるエリア',
     ],
     seed ^ 0xcafe,
+  );
+}
+
+/** q12 用：造園・植木屋向けの土地勘 */
+function pickGardenLocaleHint(seed: number): string {
+  return pickTemplate(
+    [
+      '建物に近い高木と境界の生垣が重なり、剪定の持ち方が難しい戸建て',
+      '日当たりの良い南側の庭と、夏だけ湿気が残る北側の植え込み',
+      '狭い路地と隣家の塀に挟まれた樹木の剪定',
+      '台風で枝が折れやすい沿道の木々',
+      '古い庭木が境界に寄りすぎて、近隣の方にご相談が出やすい区画',
+    ],
+    seed ^ 0x600d,
   );
 }
 
@@ -181,12 +249,14 @@ function purposeDrivenAnswer(
   area: string,
   service: string,
   seed: number,
+  family: ServiceFamily,
 ): string | null {
   const id = questionId.trim().toLowerCase();
   const min = pickDepartureMinutes(seed);
   const minRange = pickMinuteRange(seed);
   const areaNamed = areaForCoverageCopy(area);
-  const terrain = pickLocalTerrainHint(seed);
+  const terrain =
+    family === 'garden' ? pickGardenLocaleHint(seed) : pickLocalTerrainHint(seed);
   const baseVars = {
     area,
     areaNamed,
@@ -195,6 +265,42 @@ function purposeDrivenAnswer(
     minRange,
     terrain,
   };
+
+  if (family === 'garden') {
+    if (id === 'q11') {
+      const pool = [
+        '{areaNamed}とその周辺の住宅地まで、ご自宅へ伺い{service}の現地確認・お見積りに対応します。剪定や庭木の優先順位も、敷地を見ながら一緒に決めます。住所や駅名・大字を教えてもらえれば、当日の空きに合わせて「伺える枠」をはっきりお返しします。',
+        '「うちの庭にも来てくれる？」が知りたいポイントだと思います。{areaNamed}を基点に、よく回る範囲を地図の感覚で説明します。近隣の剪定や抜根の現場をつなげて動くので、車の回し方でムダを減らし、伺いの段取りを早めに出すようにしています。',
+        '{areaNamed}のお客様には、お電話のあと約{minRange}分ほどで「出発の目安」をお伝えできることが多いです。庭木の急ぎ（折れた枝・倒木の危険など）の相談も、まずは場所だけ教えてください。',
+      ] as const;
+      return applyTemplateVars(pickTemplate(pool, seed), baseVars);
+    }
+    if (id === 'q12') {
+      const pool = [
+        '{area}では{terrain}など、図面だけでは分からないクセがあります。剪定の届き方や剪定屑の搬出でつまずきやすい庭も何件も見てきたので、現場に入る前から「ここはこう動くとスムーズ」と先回りしてお話しします。季節で伸び方が違う樹種の傾向も、地元で回っていると肌感で共有しやすいです。',
+        '同じ{area}でも区画によって、日陰の苔の付き方や風の通り方が違います。{terrain}は特に経験値が効くので、「うちの庭もそうかも」と感じる点があれば、写真で一緒に確認します。',
+        '{area}の庭木は、植え込みの深さや根の張り方で手の入れ方が変わります。{terrain}のお庭では、近隣への配慮（剪定屑・音の出方）も先に整理してお話しします。',
+      ] as const;
+      return applyTemplateVars(pickTemplate(pool, seed), baseVars);
+    }
+    if (id === 'q13') {
+      const pool = [
+        '台風後の枝の危険・急ぎの剪定などは、即日で現地を見に行ける日もあります。目安として、お電話から最短で約{min}分ほどで車を出せることが多いです。到着までの目安はその都度お伝えし、夜間は別途ご相談になります。',
+        '急ぎをご希望の場合は、午前中のご連絡があると枠を組み替えやすいです。お電話後、おおよそ{minRange}分ほどで現場向かいの段取りに入れることが多く、移動中も遅れが出そうならこちらから連絡します。',
+        '危険が高いときは、近くの剪定を早めに切り上げて向かうこともあります。最短でお電話から約{min}分以内に動き出せる日もあります。スピードは言葉ではなく、人と車の配置で作っています。',
+      ] as const;
+      return applyTemplateVars(pickTemplate(pool, seed), baseVars);
+    }
+    if (id === 'q14') {
+      const pool = [
+        '年に数回、自治会の道路清掃や公園の草刈りボランティア、校区の緑地手入れの手伝いに参加しています。営業ではなく、{area}の街の一員として顔を出しておきたいだけです。',
+        '地元の神社の境内の草刈りや、夏祭りの片付け手伝い、子ども会の防災訓練の手伝いなど、小さな声がけでもできる範囲で出ます。緑の仕事以外の顔を見てもらえれば、ご近所の方も話しかけやすいと思っています。',
+        '運動会のテント立てや、校区の清掃デーにも顔を出すことがあります。{area}で暮らす方と同じ目線で街の木や公園を使うつもりで、祭りや行事の日は特に足を運ぶようにしています。',
+      ] as const;
+      return applyTemplateVars(pickTemplate(pool, seed), baseVars);
+    }
+    return null;
+  }
 
   // q11 対応エリア（「うちにも来るか」が分かること・フットワーク）
   if (id === 'q11') {
@@ -239,9 +345,34 @@ function purposeDrivenAnswer(
   return null;
 }
 
+/** 他設問の抜粋を文末に一段足す（空ならそのまま） */
+function appendContextualTail(
+  text: string,
+  contextSnippet: string,
+  area: string,
+  service: string,
+  seed: number,
+): string {
+  const snippet = contextSnippet.trim();
+  if (!snippet) return text;
+  const short = snippet.length > 90 ? `${snippet.slice(0, 90)}…` : snippet;
+  const tails = [
+    `ご記入いただいた他の項目の内容（「${short}」の点など）も踏まえ、${area}の${service}を丁寧にご提案します。`,
+    `お話しの内容（${short}）に沿うよう、${area}の${service}で無理のないご提案を心がけます。`,
+    `先に共有いただいた内容（${short}）のニュアンスも大切にしながら、${area}の${service}をご一緒に整えていきます。`,
+  ] as const;
+  return `${text}\n\n${pickTemplate(tails, seed ^ 0x8badf00d)}`;
+}
+
 /* ---------- トーン別テンプレ（{area}{service} のみ。ラベルは入れない） ---------- */
 
 const TONE_ONE_LINER: Record<ServiceFamily, readonly string[]> = {
+  garden: [
+    '庭木はほっといたら、近隣や安全の面で気持ちが重くなることがあります。{area}でお困りなら、うちに一度見せてください。剪定の優先順位から一緒に決めます。手遅れになる前に、声をかけてもらえたら本当にうれしいです。',
+    '{area}では境界の高木や伸びすぎた植え込みで悩む方も多いです。「まだ大丈夫かな」と思っているうちがいちばん危ないので、気になったら遠慮なく相談ください。見に行くだけでも構いません。',
+    '剪定や抜根のことで一人で抱え込まないでください。{area}のうちは、{service}の現場を何度も見てきました。どんな小さな違和感でも、まずは話だけ聞かせてください。',
+    '「業者に頼むほどでもない」と思われがちですが、庭木は早めのほうがお家周りも気持ちもやさしいです。{area}ならすぐ伺えます。怖がらずに一度、電話ください。',
+  ],
   roof: [
     '雨漏りはほっといたら、家全体に響くことがあります。{area}でお困りなら、うちに一度見せてください。調査だけでも大丈夫です。手遅れになる前に、声をかけてもらえたら本当にうれしいです。',
     '{area}では屋根のちょっとしたひびから水が入ることもあります。「まだ大丈夫かな」と思っているうちがいちばん危ないので、気になったら遠慮なく相談ください。見に行くだけでも構いません。',
@@ -262,7 +393,7 @@ const TONE_ONE_LINER: Record<ServiceFamily, readonly string[]> = {
   ],
 };
 
-const TONE_CREDIBILITY: readonly string[] = [
+const TONE_CREDIBILITY_BASE: readonly string[] = [
   '{area}では口コミや紹介で仕事をいただくことが多く、長く続けてこれたのも地域のおかげです。数字や実績は現場でそのままお見せしますので、嘘はつきません。',
   'うちは派手な宣伝より、終わったあと「また頼みたい」と言ってもらえることを一番にしています。{service}の現場は一つひとつ丁寧に、{area}のお客様に顔を合わせて説明します。',
   '資格や保証も大事ですが、現場でどう動くかが一番だと思っています。{area}の{service}は、経験を積んだ職人が責任を持って対応します。',
@@ -270,7 +401,15 @@ const TONE_CREDIBILITY: readonly string[] = [
   '「うちに頼んでよかった」と言ってもらえるよう、説明と施工の両方で手を抜きません。{service}のことは分かりやすい言葉でお伝えします。',
 ];
 
-const TONE_LOCAL: readonly string[] = [
+const TONE_CREDIBILITY_GARDEN: readonly string[] = [
+  '{area}では口コミや紹介で庭木の相談をいただくことが多く、長く続けてこれたのも地域のおかげです。剪定前後の写真や作業内容はそのままお見せしますので、嘘はつきません。',
+  'うちは派手な宣伝より、終わったあと「また来年もお願いしたい」と言ってもらえることを一番にしています。{service}の現場は一つひとつ丁寧に、{area}のお客様に顔を合わせて説明します。',
+  '樹形や生育の見立ても大事ですが、現場でどう手を入れるかが一番だと思っています。{area}の{service}は、経験を積んだ担当が責任を持って対応します。',
+  '創業からずっと{area}周辺の庭木を見てきました。見た目だけでなく、安全や近隣への配慮も優先しています。',
+  '「うちに頼んでよかった」と言ってもらえるよう、剪定の理由と手順を分かりやすくお伝えします。{service}のことは専門用語を避けて話します。',
+];
+
+const TONE_LOCAL_BASE: readonly string[] = [
   '{area}から近い場所に拠点があり、急ぎのときもできるだけ早く駆けつけられるよう手配しています。遠方の大手より、顔の見える距離感を大事にしています。',
   'この地域の天気や建て方のクセも、長年見てきた分だけ分かっています。{area}の{service}は、土地の事情に合わせて無理のないやり方を提案します。',
   '近所への配慮や作業時間の相談も、遠慮なく言ってください。{area}で暮らす方と同じ目線で、気持ちよく終わるよう心がけています。',
@@ -278,7 +417,15 @@ const TONE_LOCAL: readonly string[] = [
   'うちの担当はなるべく地元の者が行きます。「また来てほしい」と思ってもらえる関係を、{area}で積み重ねています。',
 ];
 
-const TONE_EMPATHY: readonly string[] = [
+const TONE_LOCAL_GARDEN: readonly string[] = [
+  '{area}から近い場所に拠点があり、剪定の急ぎにもできるだけ早く伺えるよう手配しています。遠方の大手より、顔の見える距離感を大事にしています。',
+  'この地域の風向きや季節の伸び方のクセも、長年見てきた分だけ分かっています。{area}の{service}は、樹種と敷地に合わせて無理のないやり方を提案します。',
+  '近隣への配慮（剪定屑・音・通路）も、遠慮なく言ってください。{area}で暮らす方と同じ目線で、気持ちよく終わるよう心がけています。',
+  '無料でできる範囲と、有料になる作業は最初に書き分けてお伝えします。{area}のお客様に後からびっくりされないよう、見積の項目は口でもう一度補足します。',
+  'うちの担当はなるべく地元の者が伺います。「また来年もお願いしたい」と思ってもらえる関係を、{area}で積み重ねています。',
+];
+
+const TONE_EMPATHY_BASE: readonly string[] = [
   '「前に断られた」「金額が分からなくて怖い」という話、よく聞きます。{area}のうちでは、まず状況を聞いて、無理な提案はしません。相談だけでも歓迎です。',
   '不安なまま契約なんてさせません。{service}のことは、専門用語を使わずに、何度でも説明します。納得いくまで付き合います。',
   '追加料金が怖い方が多いので、うちはできる範囲と追加になりそうな条件を最初に書きます。{area}でも同じやり方で、驚かせないようにしています。',
@@ -286,7 +433,15 @@ const TONE_EMPATHY: readonly string[] = [
   '時間が取れない方には、できるだけ日程を調整します。{service}のことで頭を悩ませているなら、まずは短い電話でも構いません。',
 ];
 
-const TONE_DIFFERENTIATION: readonly string[] = [
+const TONE_EMPATHY_GARDEN: readonly string[] = [
+  '「大きな木で断られた」「見積が分からなくて怖い」という話、よく聞きます。{area}のうちでは、まず庭の状況を聞いて、無理な提案はしません。相談だけでも歓迎です。',
+  '不安なまま剪定だけ進めたりしません。{service}のことは、専門用語を使わずに、何度でも説明します。納得いくまで付き合います。',
+  '追加料金が怖い方が多いので、うちはできる範囲と追加になりそうな条件を最初に書きます。{area}でも同じやり方で、驚かせないようにしています。',
+  '女性の方やご年配の方だけのご家庭でも、安心して相談できるよう、分かりやすくゆっくり話します。{area}で庭木でお困りなら、遠慮なくどうぞ。',
+  '時間が取れない方には、できるだけ日程を調整します。{service}のことで頭を悩ませているなら、まずは短い電話でも構いません。',
+];
+
+const TONE_DIFFERENTIATION_BASE: readonly string[] = [
   '大きな会社ほど手の届かないところを、うちは小回りでカバーします。{area}の{service}は、現場の細かいところまで見るのが得意です。',
   '安さの理由は、無駄な中間を減らして、必要な材料と手間だけにすることです。{service}の品質だけは落としません。',
   '道具や材料にもこだわりますが、それ以上に「なぜそうするか」を説明することを大事にしています。{area}のお客様に納得してもらってから進めます。',
@@ -294,13 +449,47 @@ const TONE_DIFFERENTIATION: readonly string[] = [
   '見積もりは細かく、でも読みやすく。{area}では「ここまで含む／含まない」をはっきり書くようにしています。',
 ];
 
-const TONE_STORY: readonly string[] = [
+const TONE_DIFFERENTIATION_GARDEN: readonly string[] = [
+  '大きな会社ほど手の届かない庭先の細かいところを、うちは小回りでカバーします。{area}の{service}は、樹形と安全のバランスまで見るのが得意です。',
+  '安さの理由は、無駄な中間を減らして、必要な手間と搬出費だけにすることです。{service}の仕上がりだけは落としません。',
+  '剪定ばさみや脚立の選び方にもこだわりますが、それ以上に「なぜここを切るか」を説明することを大事にしています。{area}のお客様に納得してもらってから進めます。',
+  '剪定後に不安が残らないよう、後からでも気軽に連絡しやすい関係を作りたいです。{service}は終わってからが本番だと思っています。',
+  '見積もりは細かく、でも読みやすく。{area}では「搬出・処分まで含む／含まない」をはっきり書くようにしています。',
+];
+
+const TONE_STORY_BASE: readonly string[] = [
   '終わったあと「よかった」と笑ってもらえるのが、いちばんのやりがいです。{area}のお客様にも、安心して暮らせる日々が続くよう願っています。',
   'うまくいかなかった現場から学んだこともたくさんあります。だから今は、最初に聞くことと説明することを大切にしています。{service}も同じです。',
   '「うちも頼もうかな」と近所の方に言ってもらえると、親方としては何よりです。{area}で長くやっていけるのは、そういうつながりのおかげです。',
   '十年後も困ったときに「あの時の業者さんに」と思ってもらえたら最高です。{area}の{service}は、そういう関係を目指しています。',
   '家族に説明しやすいように、写真や図を使うこともあります。{area}のご家庭が安心して決められるよう、一緒に整理していきます。',
 ];
+
+const TONE_STORY_GARDEN: readonly string[] = [
+  '剪定が終わったあと「すっきりした」と笑ってもらえるのが、いちばんのやりがいです。{area}のお客様にも、庭が安心できる空間になるよう願っています。',
+  'うまくいかなかった庭木の現場から学んだこともたくさんあります。だから今は、最初に聞くことと説明することを大切にしています。{service}も同じです。',
+  '「うちの庭も見てほしい」と近所の方に言ってもらえると、何よりです。{area}で長くやっていけるのは、そういうつながりのおかげです。',
+  '何年後も困ったときに「あの時の植木屋さんに」と思ってもらえたら最高です。{area}の{service}は、そういう関係を目指しています。',
+  '家族に説明しやすいように、剪定前後の写真を使うこともあります。{area}のご家庭が安心して決められるよう、一緒に整理していきます。',
+];
+
+function toneCredibility(family: ServiceFamily): readonly string[] {
+  return family === 'garden' ? TONE_CREDIBILITY_GARDEN : TONE_CREDIBILITY_BASE;
+}
+function toneLocal(family: ServiceFamily): readonly string[] {
+  return family === 'garden' ? TONE_LOCAL_GARDEN : TONE_LOCAL_BASE;
+}
+function toneEmpathy(family: ServiceFamily): readonly string[] {
+  return family === 'garden' ? TONE_EMPATHY_GARDEN : TONE_EMPATHY_BASE;
+}
+function toneDifferentiation(family: ServiceFamily): readonly string[] {
+  return family === 'garden'
+    ? TONE_DIFFERENTIATION_GARDEN
+    : TONE_DIFFERENTIATION_BASE;
+}
+function toneStory(family: ServiceFamily): readonly string[] {
+  return family === 'garden' ? TONE_STORY_GARDEN : TONE_STORY_BASE;
+}
 
 function templatesForTone(
   tone: AnswerTone,
@@ -310,17 +499,17 @@ function templatesForTone(
     case 'one_liner_advice':
       return TONE_ONE_LINER[family];
     case 'credibility_fact':
-      return TONE_CREDIBILITY;
+      return toneCredibility(family);
     case 'local_presence':
-      return TONE_LOCAL;
+      return toneLocal(family);
     case 'empathy_pain':
-      return TONE_EMPATHY;
+      return toneEmpathy(family);
     case 'differentiation':
-      return TONE_DIFFERENTIATION;
+      return toneDifferentiation(family);
     case 'story_future':
-      return TONE_STORY;
+      return toneStory(family);
     default:
-      return TONE_EMPATHY;
+      return toneEmpathy(family);
   }
 }
 
@@ -338,22 +527,31 @@ export function suggestRawAnswerLocal(input: RawAnswerSuggestInput): string {
       : 0;
   const seed = baseSeed ^ extra;
 
+  const contextSnippet = buildOtherAnswersContextSnippet(
+    input.questionId,
+    input.otherAnswers,
+  );
+  const family = inferServiceFamily(input.service);
+
   const purpose = purposeDrivenAnswer(
     input.questionId,
     area,
     service,
     seed,
+    family,
   );
-  if (purpose) return purpose;
+  if (purpose) {
+    return appendContextualTail(purpose, contextSnippet, area, service, seed);
+  }
 
   const block = getBlockForQuestionId(input.questionId) ?? 'trust';
   const tone = inferToneFromLabel(input.questionLabel, block);
-  const family = inferServiceFamily(input.service);
   const toneSeed = seed ^ hash32(tone) * 0x9e3779b9;
 
   const pool = templatesForTone(tone, family);
   const t = pickTemplate(pool, toneSeed);
-  return applyAS(t, area, service);
+  const text = applyAS(t, area, service);
+  return appendContextualTail(text, contextSnippet, area, service, seed);
 }
 
 /**

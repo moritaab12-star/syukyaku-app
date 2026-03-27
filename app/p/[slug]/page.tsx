@@ -29,6 +29,7 @@ type ProjectRow = {
   intent?: string | null;
   lp_group_id?: string | null;
   variation_seed?: number | null;
+  industry_key?: string | null;
 };
 
 export default function PublicLpPage() {
@@ -57,7 +58,7 @@ export default function PublicLpPage() {
           await fetchProjectBySlugOrId(
             supabase,
             slug,
-            'id, slug, company_name, project_type, raw_answers, company_info, area, service, target_area, areas, keyword, intent, publish_status, lp_group_id, variation_seed',
+            'id, slug, company_name, project_type, raw_answers, company_info, area, service, industry_key, target_area, areas, keyword, intent, publish_status, lp_group_id, variation_seed',
           );
         if (projectErr || !projectData) {
           setError('プロジェクトが見つかりません');
@@ -76,6 +77,7 @@ export default function PublicLpPage() {
             area: proj.area ?? null,
             service: proj.service ?? null,
             intent: proj.intent ?? null,
+            industry_key: proj.industry_key ?? null,
           },
           { min: 3, max: 5 },
         );
@@ -108,6 +110,7 @@ export default function PublicLpPage() {
           areasList: proj.areas ?? undefined,
           serviceOverride: proj.service ?? undefined,
           keywordOverride: proj.keyword ?? undefined,
+          industryKey: proj.industry_key ?? null,
           relatedLinks,
           projectStableId: proj.id,
           lpGroupId: proj.lp_group_id ?? undefined,

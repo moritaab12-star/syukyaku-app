@@ -30,6 +30,8 @@ type SaveProjectPayload = {
   resolved_area?: string | null;
   areas?: string[] | null;
   service?: string | null;
+  /** 業種バケット（任意）。関連LPの industry_key 一致に使う */
+  industry_key?: string | null;
   keyword?: string | null;
   raw_answers?: unknown;
   company_info?: unknown;
@@ -38,6 +40,12 @@ type SaveProjectPayload = {
   /** 行ごとの edition（決定的バリエーション seed）。未送時は 0 */
   variation_seed?: number | null;
 };
+
+function normalizeIndustryKey(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  return t.length > 0 ? t : null;
+}
 
 function rawAnswerById(rawAnswers: unknown, qid: string): string {
   if (!Array.isArray(rawAnswers)) return '';
@@ -72,6 +80,7 @@ export async function POST(request: Request) {
       typeof body.keyword === 'string' && body.keyword.trim().length > 0
         ? body.keyword.trim()
         : null;
+    const industryKey = normalizeIndustryKey(body.industry_key);
     const rawAnswers = body.raw_answers ?? [];
     const companyInfo = body.company_info ?? {};
 
@@ -133,6 +142,7 @@ export async function POST(request: Request) {
         raw_answers: rawAnswers,
         company_info: companyInfo,
         areas,
+        industry_key: industryKey,
         wp_page_id: null,
         wp_url: null,
         publish_status: 'draft' as const,
@@ -251,6 +261,7 @@ export async function POST(request: Request) {
         target_area: resolvedArea,
         areas,
         service,
+        industry_key: industryKey,
         keyword,
         intent,
       };
@@ -292,6 +303,7 @@ export async function POST(request: Request) {
       target_area: resolvedArea,
       areas,
       service,
+      industry_key: industryKey,
       keyword,
       intent,
       wp_page_id: null,

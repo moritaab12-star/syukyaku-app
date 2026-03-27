@@ -112,6 +112,7 @@ function buildInsertFromTemplate(
     target_area: template.target_area ?? template.area ?? null,
     areas,
     service: template.service ?? null,
+    industry_key: template.industry_key ?? null,
     keyword: template.keyword ?? null,
     intent: template.intent ?? null,
     wp_page_id: null,
