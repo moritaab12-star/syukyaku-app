@@ -4,7 +4,6 @@ import React from 'react';
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { createSupabaseClient } from '@/lib/supabase';
 import {
   Plus,
   Trash2,
@@ -61,6 +60,7 @@ export function ProjectsTable({ initialProjects }: Props) {
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
 
   const [lpDrawerOpen, setLpDrawerOpen] = useState(false);
   const [lpDrawerIn, setLpDrawerIn] = useState(false);
@@ -89,8 +89,6 @@ export function ProjectsTable({ initialProjects }: Props) {
     return () => cancelAnimationFrame(id);
   }, [lpDrawerOpen]);
 
-  const supabase = createSupabaseClient();
-
   const refresh = useCallback(() => {
     router.refresh();
   }, [router]);
@@ -114,24 +112,48 @@ export function ProjectsTable({ initialProjects }: Props) {
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
-    const message =
-      selectedIds.size === 1
-        ? 'このプロジェクトを削除しますか？'
-        : `選択した ${selectedIds.size} 件のプロジェクトを削除しますか？`;
-    if (!window.confirm(message)) return;
+    const count = selectedIds.size;
+    const idsToRemove = Array.from(selectedIds);
+    if (!window.confirm(`本当に ${count} 件削除しますか？`)) return;
+    setBulkDeleteError(null);
     setDeleting(true);
     try {
-      const { error: e } = await supabase
-        .from('projects')
-        .delete()
-        .in('id', Array.from(selectedIds));
-      if (e) throw e;
+      const res = await fetch('/api/admin/projects/bulk-delete', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: idsToRemove }),
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (res.status === 401) {
+        const msg =
+          typeof json?.error === 'string'
+            ? json.error
+            : '認可に失敗しました。/admin/login でログインしてください。';
+        setBulkDeleteError(msg);
+        alert(msg);
+        return;
+      }
+
+      if (!res.ok || json?.ok !== true) {
+        const msg =
+          typeof json?.error === 'string'
+            ? json.error
+            : '削除に失敗しました。';
+        setBulkDeleteError(msg);
+        alert(msg);
+        return;
+      }
+
       setSelectedIds(new Set());
-      setProjects((prev) => prev.filter((p) => !selectedIds.has(p.id)));
+      setProjects((prev) => prev.filter((p) => !idsToRemove.includes(p.id)));
       refresh();
     } catch (err) {
       console.error(err);
-      alert('削除に失敗しました。');
+      const msg = '通信エラーで削除を完了できませんでした。';
+      setBulkDeleteError(msg);
+      alert(msg);
     } finally {
       setDeleting(false);
     }
@@ -211,26 +233,42 @@ export function ProjectsTable({ initialProjects }: Props) {
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
             <span className="text-sm text-slate-400">{projects.length} 件</span>
-            {selectedIds.size > 0 && (
-              <button
-                type="button"
-                onClick={handleBulkDelete}
-                disabled={deleting}
-                className="inline-flex items-center gap-2 rounded-lg bg-red-500/90 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-red-500 disabled:opacity-50"
-              >
-                {deleting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4" />
-                )}
-                一括削除（{selectedIds.size}）
-              </button>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {bulkDeleteError && (
+                <p className="max-w-md text-xs text-amber-200">{bulkDeleteError}</p>
+              )}
+              {selectedIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleBulkDelete()}
+                  disabled={deleting}
+                  className="inline-flex items-center gap-2 rounded-lg bg-red-500/90 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-red-500 disabled:opacity-50"
+                >
+                  {deleting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  選択した項目を削除
+                </button>
+              )}
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px]">
+          <div className="relative">
+            {deleting && (
+              <div
+                className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-b-2xl bg-slate-950/65 backdrop-blur-[2px]"
+                aria-busy="true"
+                aria-live="polite"
+              >
+                <Loader2 className="h-8 w-8 animate-spin text-sky-400" />
+                <span className="text-sm font-medium text-slate-200">削除中…</span>
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px]">
               <thead>
                 <tr className="border-b border-slate-800 bg-slate-900/60">
                   <th className="w-12 px-4 py-3 text-left">
@@ -351,7 +389,8 @@ export function ProjectsTable({ initialProjects }: Props) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         </>
       )}
