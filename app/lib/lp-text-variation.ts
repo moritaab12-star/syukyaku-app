@@ -41,6 +41,16 @@ const SUBHEADLINE_BUILD = (area: string, service: string) =>
     `${area}周辺の${service}。お見積もり・ご相談から丁寧に対応します。`,
   ] as const;
 
+const SUBHEADLINE_REAL_ESTATE = (area: string, service: string) =>
+  [
+    `${area}の${service}。売却・購入のご希望を整理し、相場感と選択肢を分かりやすくご案内します。`,
+    `${area}エリアの不動産。内見・査定の段取りから、契約までの流れを一緒に確認します。`,
+    `${area}で物件をお探しの方、お預かりで売却をご検討の方へ。無理な進め方はしません。`,
+    `${area}の${service}。諸費用の内訳や注意点も先にご説明し、納得して進めていただきます。`,
+    `${area}にお住まいの方、住み替えや資産整理のご相談もお気軽にどうぞ。`,
+    `${area}周辺の${service}。ポータルだけでは分からないエリアのニュアンスもお伝えします。`,
+  ] as const;
+
 function subheadlinesForTone(
   area: string,
   service: string,
@@ -53,6 +63,8 @@ function subheadlinesForTone(
     case 'roof':
     case 'exterior':
       return SUBHEADLINE_BUILD(area, service);
+    case 'real_estate':
+      return SUBHEADLINE_REAL_ESTATE(area, service);
     default:
       return SUBHEADLINE_GENERAL(area, service);
   }

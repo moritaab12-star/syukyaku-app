@@ -1,10 +1,14 @@
-import { inferServiceFamily, type ServiceFamily } from '@/app/lib/raw-answer-suggest';
-
 /**
- * LP 本文（lpToHtmlCore / lp-template）向けの業種トーン。
- * raw_answers の ServiceFamily に reform を足した拡張。
+ * LP 本文向けの業種トーン。`resolveLpIndustryTone` が業種解決の唯一の入口（他ファイルで独自推定しない）。
  */
-export type LpIndustryTone = 'garden' | 'roof' | 'exterior' | 'reform' | 'general';
+
+export type LpIndustryTone =
+  | 'garden'
+  | 'roof'
+  | 'exterior'
+  | 'reform'
+  | 'real_estate'
+  | 'general';
 
 const KEY_ALIASES: Record<string, LpIndustryTone> = {
   garden: 'garden',
@@ -12,6 +16,10 @@ const KEY_ALIASES: Record<string, LpIndustryTone> = {
   exterior: 'exterior',
   reform: 'reform',
   general: 'general',
+  real_estate: 'real_estate',
+  realestate: 'real_estate',
+  'real-estate': 'real_estate',
+  不動産: 'real_estate',
 };
 
 function matchesReformService(service: string): boolean {
@@ -19,13 +27,40 @@ function matchesReformService(service: string): boolean {
   return /リフォーム|改装|リノベ|大規模修繕|水回り|キッチン|バス|内装|増改築/.test(s);
 }
 
-function serviceFamilyToLpTone(f: ServiceFamily): Exclude<LpIndustryTone, 'reform'> {
-  return f;
+function matchesRealEstateService(service: string): boolean {
+  const s = service.toLowerCase();
+  return /不動産|売買|購入|中古|新築|物件|マンション|戸建|戸建て|土地|投資用|査定|仲介|賃貸|転貸|管理会社|空室|宅建|売却|買取|オーナーチェンジ|内見|管理体制/.test(
+    s,
+  );
+}
+
+/** service から建築・緑地系のみ判定（reform / real_estate より後で呼ぶ前提はない — 呼び出し側で順序管理） */
+function inferBuiltTradeToneFromService(service: string): Extract<
+  LpIndustryTone,
+  'garden' | 'roof' | 'exterior' | 'general'
+> {
+  const s = service.toLowerCase();
+  if (/屋根|雨漏り|葺き|葺|ガルバ|スレート|瓦|カバー工法|屋上/.test(s)) return 'roof';
+  if (/外壁|塗装|防水|シーリング/.test(s)) return 'exterior';
+  if (
+    /植木|剪定|庭|緑地|造園|植木屋|芝生|草刈|ガーデン|ランドスケープ|樹木|庭師|エクステリア|竹林|抜根|防草|除草|芝はり|緑地管理/.test(
+      s,
+    )
+  ) {
+    return 'garden';
+  }
+  return 'general';
+}
+
+function inferLpIndustryToneFromService(service: string): LpIndustryTone {
+  const svc = typeof service === 'string' ? service : '';
+  if (matchesReformService(svc)) return 'reform';
+  if (matchesRealEstateService(svc)) return 'real_estate';
+  return inferBuiltTradeToneFromService(svc);
 }
 
 /**
  * projects.industry_key を最優先し、なければ service 文字列から推定。
- * DB の industry_key は小文字想定（garden / reform 等）。
  */
 export function resolveLpIndustryTone(
   industryKey: string | null | undefined,
@@ -35,13 +70,7 @@ export function resolveLpIndustryTone(
   if (raw && KEY_ALIASES[raw]) {
     return KEY_ALIASES[raw];
   }
-
-  const svc = typeof service === 'string' ? service : '';
-  if (matchesReformService(svc)) {
-    return 'reform';
-  }
-
-  return serviceFamilyToLpTone(inferServiceFamily(svc));
+  return inferLpIndustryToneFromService(typeof service === 'string' ? service : '');
 }
 
 /** lpToHtmlCore 用の業種別文言（DOM は同じ・中身のみ差し替え） */
@@ -270,6 +299,54 @@ const EXTERIOR_COPY: LpHtmlSectionCopy = {
   ],
 };
 
+const REAL_ESTATE_COPY: LpHtmlSectionCopy = {
+  solutionLead:
+    '{area}エリアの相場感・立地の特徴を踏まえ、売却・購入・賃貸それぞれのご状況に沿ってご案内します。',
+  solutionBullets: [
+    'ご希望・条件を丁寧にヒアリング',
+    '契約前の確認事項を分かりやすくご説明',
+    '他社比較や進め方の不安にもお答えします',
+  ],
+  servicesHeadingSuffix: '取扱い・サポート内容',
+  serviceCards: [
+    {
+      title: '売却・買取のご相談',
+      text: '査定の考え方や販売活動の流れを、専門用語を避けてご説明します。',
+    },
+    {
+      title: '購入・住み替え',
+      text: '物件探しから契約手続きまで、段取りを一緒に整理します。',
+    },
+    {
+      title: '賃貸・お預かり',
+      text: '入居者募集や更新まで、状況に応じたご提案が可能です。',
+    },
+  ],
+  priceTitle: '費用・手数料の目安',
+  priceLead:
+    '仲介手数料や諸経費は取引形態により異なります。事前に内訳をご説明します。',
+  priceHeadLabels: ['項目', '目安', '備考'],
+  flowTitle: 'ご相談からご契約までの流れ',
+  flowSteps: [
+    {
+      title: 'お問い合わせ',
+      text: '電話・フォーム・LINEから。ご希望やタイムラインを伺います。',
+    },
+    {
+      title: 'ヒアリング・ご案内',
+      text: '内見・図面確認・査定など、内容に応じて次のステップをご提案します。',
+    },
+    {
+      title: 'ご契約・スムーズなお取引',
+      text: '重要事項の説明を丁寧に行い、納得いただいたうえで進めます。',
+    },
+  ],
+  benefitInlineCta: {
+    title: 'まずはご状況をお聞かせください',
+    lead: '売却・購入のどちらでも、無理のない進め方を一緒に考えます。',
+  },
+};
+
 /** Perplexity / Gemini 用の業種説明（短い日本語） */
 export function lpIndustryToneDescriptionForPrompt(tone: LpIndustryTone): string {
   const m: Record<LpIndustryTone, string> = {
@@ -277,6 +354,8 @@ export function lpIndustryToneDescriptionForPrompt(tone: LpIndustryTone): string
     roof: '屋根工事・葺き替え・雨漏り・カバー工法',
     exterior: '外壁・塗装・防水・シーリング',
     reform: 'リフォーム・内装・水回り・リノベーション',
+    real_estate:
+      '不動産の売買・賃貸・査定・仲介（戸建・マンション・土地・投資を含む）',
     general: '地域密着サービス（その他・未分類を含む）',
   };
   return m[tone];
@@ -292,6 +371,8 @@ export function getLpHtmlSectionCopy(tone: LpIndustryTone): LpHtmlSectionCopy {
       return ROOF_COPY;
     case 'exterior':
       return EXTERIOR_COPY;
+    case 'real_estate':
+      return REAL_ESTATE_COPY;
     default:
       return GENERAL_COPY;
   }

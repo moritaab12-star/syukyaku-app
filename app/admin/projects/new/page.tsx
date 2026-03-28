@@ -408,6 +408,11 @@ function NewProjectPageContent() {
           ? seoKeywordsCacheRef.current.keywords
           : null;
 
+      const projectIdForHero =
+        isEditMode && editId.trim().length > 0
+          ? editId.trim()
+          : (postSavePublishFocus?.projectId?.trim() ?? '');
+
       try {
         const res = await fetch('/api/generate', {
           method: 'POST',
@@ -425,6 +430,7 @@ function NewProjectPageContent() {
                 ? suggestRegenNonceRef.current[questionId] ?? 0
                 : 0,
             industryKey: industryKey.trim() || null,
+            ...(projectIdForHero ? { projectId: projectIdForHero } : {}),
             ...(cached && cached.length > 0 ? { seoKeywords: cached } : {}),
           }),
         });
@@ -460,7 +466,16 @@ function NewProjectPageContent() {
         showToast('error', '自動生成に失敗しました');
       }
     },
-    [rawAnswers, getSuggestAreaService, setAnswer, showToast, industryKey],
+    [
+      rawAnswers,
+      getSuggestAreaService,
+      setAnswer,
+      showToast,
+      industryKey,
+      isEditMode,
+      editId,
+      postSavePublishFocus?.projectId,
+    ],
   );
 
   const handleCompanyInfoChange = (

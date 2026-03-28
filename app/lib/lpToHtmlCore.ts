@@ -28,6 +28,8 @@ export type LpToHtmlInput = {
   template?: 'cv' | 'trust' | 'benefit';
   /** template 未指定時のランダム選択 seed（未指定なら pageUrl から安定生成） */
   templateSeed?: number;
+  /** Supabase 等の公開 URL。あればヒーロー `<img>`、なければプレースホルダ */
+  heroImageUrl?: string | null;
 };
 
 /**
@@ -39,7 +41,8 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
   jsonLdScript: string;
   bodyInner: string;
 } {
-  const { view, company, projectType, diagnosisModeTitle, pageUrl } = input;
+  const { view, company, projectType, diagnosisModeTitle, pageUrl, heroImageUrl } =
+    input;
   const resolvedDiagnosisTitle =
     typeof view.diagnosisSectionTitleOverride === 'string' &&
     view.diagnosisSectionTitleOverride.trim().length > 0
@@ -252,6 +255,12 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
   </section>`
       : '';
 
+  const heroUrl = typeof heroImageUrl === 'string' ? heroImageUrl.trim() : '';
+  const heroVisual =
+    heroUrl.length > 0
+      ? `<img src="${esc(heroUrl)}" alt="${esc(view.headline)}" class="lp-hero__image-img" width="1200" height="675" decoding="async" loading="eager" />`
+      : `<div class="lp-hero__image-placeholder">ここにメインイメージが入ります</div>`;
+
   const heroSection = `<header class="lp-hero" id="hero"${LP_REVEAL_ATTR} data-template="${esc(selectedTemplate)}">
     <div class="lp-container lp-hero__inner">
       <div class="lp-hero__badge"><span class="lp-hero__badge-label">${badgeLabel}</span></div>
@@ -266,7 +275,7 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
           <p class="lp-hero__cta-note">「まだ検討中…」という段階でもお気軽にご相談ください。</p>
         </div>
       </div>
-      <div class="lp-hero__image"><div class="lp-hero__image-placeholder">ここにメインイメージが入ります</div></div>
+      <div class="lp-hero__image">${heroVisual}</div>
     </div>
   </header>`;
 

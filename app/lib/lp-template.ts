@@ -252,6 +252,20 @@ export function buildLpViewModel(
             },
           ];
     }
+    if (industryTone === 'real_estate') {
+      return [
+        {
+          label: '売却査定・購入相談',
+          price: '¥{{price_basic}}',
+          note: `${areaName}エリアの物件条件により個別にご説明します（査定・初回相談は無料のことが多いです）`,
+        },
+        {
+          label: '仲介手数料・諸費用（目安）',
+          price: '¥{{price_plus}}',
+          note: '取引形態・価格帯により変動。契約前に内訳をご提示します',
+        },
+      ];
+    }
     return facts.achievementNumbers.length > 0
       ? [
           {
@@ -283,17 +297,27 @@ export function buildLpViewModel(
             industryTone === 'roof' ||
             industryTone === 'exterior'
           ? `A. はい。${facts.solutions[0] || '現地の状況に合わせて、工事内容とお見積もりをご提示します。'}`
-          : `A. はい。${facts.solutions[0] || 'お客様の状況に合わせてご提案します。'}`;
+          : industryTone === 'real_estate'
+            ? `A. はい。${facts.solutions[0] || '売却・購入・賃貸のご希望に合わせ、物件条件や進め方をご提案します。'}`
+            : `A. はい。${facts.solutions[0] || 'お客様の状況に合わせてご提案します。'}`;
     faqItems.push({
       q: `Q. ${facts.painKeywords[0]} という悩みにも対応できますか？`,
       a: painAnswer,
     });
   }
+  const estimateFaq =
+    industryTone === 'real_estate'
+      ? {
+          q: 'Q. 査定や相談に費用はかかりますか？',
+          a: 'A. 初回の査定や条件整理は無料で承ることが多いです。費用がかかるタイミングがある場合は事前にご説明します。',
+        }
+      : {
+          q: 'Q. 見積もりは無料ですか？',
+          a: 'A. はい。現地調査・お見積もりまでは無料で対応いたします。',
+        };
+
   faqItems.push(
-    {
-      q: 'Q. 見積もりは無料ですか？',
-      a: 'A. はい。現地調査・お見積もりまでは無料で対応いたします。',
-    },
+    estimateFaq,
     {
       q: 'Q. 対応エリアを教えてください。',
       a: `A. 主に${areaName}周辺で対応しておりますが、詳しくはお問い合わせください。`,

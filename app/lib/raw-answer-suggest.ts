@@ -9,7 +9,7 @@
  * - q11〜q14 は項目の「目的」に合わせた専用文（下記 purposeDrivenAnswer）
  *
  * 業種拡張の方針:
- * - `inferServiceFamily` でキーワード一致したカテゴリ（garden / roof / exterior 等）ごとにテンプレを切替。
+ * - 業種は `resolveLpIndustryTone`（`lp-industry.ts`）に集約。`inferServiceFamily` はそのラッパー。
  * - 未マッチは general。屋根・外壁系の語は garden では出さない。
  *
  * 他設問コンテキストの方針:
@@ -20,8 +20,32 @@
  */
 
 import { getBlockForQuestionId, type LpBlockKey } from '@/app/config/block-map';
+import { resolveLpIndustryTone, type LpIndustryTone } from '@/app/lib/lp-industry';
 
-export type ServiceFamily = 'garden' | 'roof' | 'exterior' | 'general';
+export type ServiceFamily =
+  | 'garden'
+  | 'roof'
+  | 'exterior'
+  | 'reform'
+  | 'real_estate'
+  | 'general';
+
+function lpToneToServiceFamily(tone: LpIndustryTone): ServiceFamily {
+  switch (tone) {
+    case 'garden':
+      return 'garden';
+    case 'roof':
+      return 'roof';
+    case 'exterior':
+      return 'exterior';
+    case 'reform':
+      return 'reform';
+    case 'real_estate':
+      return 'real_estate';
+    default:
+      return 'general';
+  }
+}
 
 export type RawAnswerSuggestInput = {
   questionId: string;
@@ -102,18 +126,9 @@ export function buildOtherAnswersContextSnippet(
   return joined;
 }
 
+/** @deprecated 推定ロジックは `resolveLpIndustryTone` に集約済み */
 export function inferServiceFamily(service: string): ServiceFamily {
-  const s = service.toLowerCase();
-  if (/屋根|雨漏り|葺き|葺|ガルバ|スレート|瓦|カバー工法|屋上/.test(s)) return 'roof';
-  if (/外壁|塗装|防水|シーリング/.test(s)) return 'exterior';
-  if (
-    /植木|剪定|庭|緑地|造園|植木屋|芝生|草刈|ガーデン|ランドスケープ|樹木|庭師|エクステリア|竹林|抜根|防草|除草|芝はり|緑地管理/.test(
-      s,
-    )
-  ) {
-    return 'garden';
-  }
-  return 'general';
+  return lpToneToServiceFamily(resolveLpIndustryTone(null, service));
 }
 
 /** 設問ラベルから「何を書くか」のトーンだけ推定（ラベル文字列は出力に使わない） */
@@ -236,6 +251,20 @@ function pickGardenLocaleHint(seed: number): string {
   );
 }
 
+/** q12 用：不動産のエリア文脈 */
+function pickRealEstateLocaleHint(seed: number): string {
+  return pickTemplate(
+    [
+      '駅前は商業・タワマン需要があり、少し外れると戸建て中心の落ち着いた住宅エリアに変わる区画',
+      '文教地区に近く、単身・子育て・シニアの入れ替わりがはっきり分かれる町',
+      '再開発や大型商業施設の開業で、賃料・売却相場が動きやすいエリア',
+      '海方面や産業道路へのアクセスが生活圏にあり、二世帯・投資の相談も多い地域',
+      '築年数の幅が広く、中古再生・建て替えの事例がまとまって出るエリア',
+    ],
+    seed ^ 0x7ea5,
+  );
+}
+
 /**
  * q11〜q14: 各項目の「意図」に沿った専用生成（ラベル文字列は出さない）
  *
@@ -296,6 +325,42 @@ function purposeDrivenAnswer(
         '年に数回、自治会の道路清掃や公園の草刈りボランティア、校区の緑地手入れの手伝いに参加しています。営業ではなく、{area}の街の一員として顔を出しておきたいだけです。',
         '地元の神社の境内の草刈りや、夏祭りの片付け手伝い、子ども会の防災訓練の手伝いなど、小さな声がけでもできる範囲で出ます。緑の仕事以外の顔を見てもらえれば、ご近所の方も話しかけやすいと思っています。',
         '運動会のテント立てや、校区の清掃デーにも顔を出すことがあります。{area}で暮らす方と同じ目線で街の木や公園を使うつもりで、祭りや行事の日は特に足を運ぶようにしています。',
+      ] as const;
+      return applyTemplateVars(pickTemplate(pool, seed), baseVars);
+    }
+    return null;
+  }
+
+  if (family === 'real_estate') {
+    if (id === 'q11') {
+      const pool = [
+        '{areaNamed}とその周辺エリアの売買・賃貸を中心にご案内しています。内見や現地確認の範囲、オンライン相談の可否など、まずはご希望をお聞きしたうえで「当日・翌日以降の枠」をお返しします。',
+        '「この辺りの物件も扱える？」が分かりやすいよう、{areaNamed}を基点によく扱うエリアを地図の感覚でお伝えします。学区や生活利便性の前提がずれないよう、条件から先に整理させてください。',
+        '{areaNamed}のお客様には、お電話やフォームのあと、ご希望に近い事例や近隣の相場感をざっくり共有できることが多いです。まずは探している立地・予算の幅だけでも構いません。',
+      ] as const;
+      return applyTemplateVars(pickTemplate(pool, seed), baseVars);
+    }
+    if (id === 'q12') {
+      const pool = [
+        '{area}では{terrain}など、ポータルだけでは拾いきれないニュアンスがあります。駅距離より「実生活で使う動線」や、再開発・大型案件の影響など、数字に出にくい要素も踏まえてご説明します。',
+        '同じ町内でも区画によって、人気の間取りや住み替えの理由が違います。{terrain}は内見のポイントが変わるので、写真だけでなく現地の空気感も一緒に確認したいです。',
+        '{area}の取引実績から、築年数・管理形態・周辺環境で後悔しやすい点も先に洗い出します。{terrain}の事例は特に注意点を具体でお話しします。',
+      ] as const;
+      return applyTemplateVars(pickTemplate(pool, seed), baseVars);
+    }
+    if (id === 'q13') {
+      const pool = [
+        'お急ぎの査定・内見のご希望には、できる限り当日〜翌営業日で枠をご案内します。状況によってはオンラインで先に条件整理から始めることも可能です。まずはご希望日時をお知らせください。',
+        '複数物件の内見を続ける日程調整もお手伝いします。午前に枠が空く日は先に抑えやすいので、お早めのご連絡があると助かります。',
+        '売却のタイムラインが決まっている場合は、逆向きにスケジュールを組み立てます。ご契約までの目安はケースによりますが、最初の打ち合わせで段取りをはっきりお伝えします。',
+      ] as const;
+      return applyTemplateVars(pickTemplate(pool, seed), baseVars);
+    }
+    if (id === 'q14') {
+      const pool = [
+        '地域の清掃イベントや防災訓練、商店街の活性化などに、事業として関わる機会があります。{area}で暮らす方と同じ生活圏のことを知っておきたいので、できる範囲で顔を出しています。',
+        '学区や子育て世代の住み替え相談が多いので、学校・保育の動向にも目を通すようにしています。営業色は薄く、地域の話題を共有する機会を大事にしています。',
+        '宅地以外にも、空き家や相続物件の相談が増えている地域です。{area}の街づくりの文脈を踏まえ、長く付き合える関係を心がけています。',
       ] as const;
       return applyTemplateVars(pickTemplate(pool, seed), baseVars);
     }
@@ -391,6 +456,18 @@ const TONE_ONE_LINER: Record<ServiceFamily, readonly string[]> = {
     '一人で悩まず、まずは声をかけてください。{area}で長くやってきた分、よくあるパターンも分かっています。話を聞いてから、やる・やらないは一緒に決めましょう。',
     'うちは{area}を地元に、{service}を地味に真面目にやってきました。派手なことは言えませんが、安心して頼める仕事だけはさせてください。一度お話しください。',
   ],
+  reform: [
+    '「どこから手をつけるか分からない」というリフォームの相談、{area}ではよくいただきます。うちは現地を見たうえで、優先順位を一緒に決めます。見積だけでも構いません。',
+    '{area}の住宅事情は築年数も幅があって、同じ内容でも打ち方が変わります。{service}のことは、専門用語を減らして段取りからご説明します。',
+    '追加費用が怖い方が多いので、最初に「ここまで込み／別途になり得る条件」をはっきり書きます。{area}でも同じやり方で、驚かせないようにしています。',
+    '派手な営業はしません。{area}でリフォームを考えているなら、まず写真や図面を見せてください。話を聞いてから、やる範囲は一緒に決めましょう。',
+  ],
+  real_estate: [
+    '不動産は一度決めると変えにくいからこそ、{area}では数字の根拠とリスクの両方をお話しします。売却も購入も、まずはご状況を聞かせてください。',
+    '「この物件で大丈夫？」という不安は普通です。{area}の{service}は、立地・価格・管理の観点を整理しながら、無理な進め方はしません。',
+    '仲介手数料や諸費用は取引によって違います。{area}でも内訳を先にご説明し、比較しやすいようにまとめます。押し売りはしません。',
+    'ポータルの情報だけでは分からない近隣の事情もあります。{area}で物件をお探し・ご売却の方は、内見や査定の前に一度声をかけてください。',
+  ],
 };
 
 const TONE_CREDIBILITY_BASE: readonly string[] = [
@@ -473,22 +550,65 @@ const TONE_STORY_GARDEN: readonly string[] = [
   '家族に説明しやすいように、剪定前後の写真を使うこともあります。{area}のご家庭が安心して決められるよう、一緒に整理していきます。',
 ];
 
+const TONE_CREDIBILITY_REAL_ESTATE: readonly string[] = [
+  '{area}では売却・購入の両面で相談をいただくことが多く、根拠のある説明を心がけています。過去事例や近隣相場は、可能な範囲で根拠とセットでお示します。',
+  'うちは派手な宣伝より、契約後も説明が追いつく関係を重視します。{service}の条件・手続きは専門用語を減らし、{area}のお客様に複数回お話しします。',
+  '宅地建物取引士の知識と、現場でよく聞く不安のパターンの両方を大事にしています。{area}の不動産は一つひとつ丁寧に整理してからご提案します。',
+  '「売れなかった時は？」「買い遅れた時は？」など、出口の話も先にします。{area}で長くやっているからこそ、楽観だけの説明はしません。',
+];
+
+const TONE_LOCAL_REAL_ESTATE: readonly string[] = [
+  '{area}の住環境・生活利便・学区の傾向は案件ごとに変わります。地図上の距離だけでなく、日常の動線感でエリアをご案内します。',
+  '駅前と住宅街の境目、再開発の影響など、数字に出にくい要素も{area}では意識しています。{service}は地域の文脈に合わせて条件を一緒に整えます。',
+  '他社様の物件も含め、比較しやすいよう資料の見方からお手伝いします。{area}に根ざした情報を、偏りなくお伝えします。',
+  'オンライン相談・内見同行の調整も、遠方のお客様には特に丁寧に行います。{area}周辺の打ち合わせ場所も相談に応じます。',
+];
+
+const TONE_EMPATHY_REAL_ESTATE: readonly string[] = [
+  '「この価格で大丈夫？」「後から追加費用が出ない？」という不安、よく聞きます。{area}のうちでは諸費用の内訳から先に説明し、無理な進行はしません。',
+  '売却では思い出の家、購入では人生の一大事。{service}の話は急がず、ペースはお客様に合わせます。',
+  '初めての取引でも、重要事項は噛み砕いて繰り返し説明します。{area}では「分からない」を放置しないよう心がけています。',
+  '条件が合わなければ止めてもらって構いません。{area}で納得いくまで伴走するのが当たり前だと思っています。',
+];
+
+const TONE_DIFFERENTIATION_REAL_ESTATE: readonly string[] = [
+  '価格だけで勝負するより、リスクと選択肢を並べて選べるようにします。{area}の{service}は、説明の厚みで差をつけています。',
+  '広告費を過剰にかけず、担当が最後まで同じ顔で見るスタイルです。引き継ぎで情報が抜けないよう工夫しています。',
+  '契約書・付帯設備表の読み方も、初めての方向けにお伝えします。{area}のお客様に「読んでから決めた」と言ってもらえるよう努めます。',
+  '他社の査定や提案とも比較しやすいよう、根拠を箇条書きで残します。{service}後のフォロー項目も最初に確認します。',
+];
+
+const TONE_STORY_REAL_ESTATE: readonly string[] = [
+  '売却が決まったあと「よかった」と言ってもらえるのが励みです。{area}で安心して次の一歩を踏み出してもらいたいです。',
+  'うまくいかなかった事例から学び、今は最初のヒアリングの項目を増やしています。{service}も同じです。',
+  '「うちも相談しよう」と知人に紹介してもらえると何よりです。{area}での長いお付き合いを大切にしています。',
+  '十年後も住み替えや資産整理で頼ってもらえたら最高です。{area}の{service}は、その関係を目指します。',
+];
+
 function toneCredibility(family: ServiceFamily): readonly string[] {
-  return family === 'garden' ? TONE_CREDIBILITY_GARDEN : TONE_CREDIBILITY_BASE;
+  if (family === 'garden') return TONE_CREDIBILITY_GARDEN;
+  if (family === 'real_estate') return TONE_CREDIBILITY_REAL_ESTATE;
+  return TONE_CREDIBILITY_BASE;
 }
 function toneLocal(family: ServiceFamily): readonly string[] {
-  return family === 'garden' ? TONE_LOCAL_GARDEN : TONE_LOCAL_BASE;
+  if (family === 'garden') return TONE_LOCAL_GARDEN;
+  if (family === 'real_estate') return TONE_LOCAL_REAL_ESTATE;
+  return TONE_LOCAL_BASE;
 }
 function toneEmpathy(family: ServiceFamily): readonly string[] {
-  return family === 'garden' ? TONE_EMPATHY_GARDEN : TONE_EMPATHY_BASE;
+  if (family === 'garden') return TONE_EMPATHY_GARDEN;
+  if (family === 'real_estate') return TONE_EMPATHY_REAL_ESTATE;
+  return TONE_EMPATHY_BASE;
 }
 function toneDifferentiation(family: ServiceFamily): readonly string[] {
-  return family === 'garden'
-    ? TONE_DIFFERENTIATION_GARDEN
-    : TONE_DIFFERENTIATION_BASE;
+  if (family === 'garden') return TONE_DIFFERENTIATION_GARDEN;
+  if (family === 'real_estate') return TONE_DIFFERENTIATION_REAL_ESTATE;
+  return TONE_DIFFERENTIATION_BASE;
 }
 function toneStory(family: ServiceFamily): readonly string[] {
-  return family === 'garden' ? TONE_STORY_GARDEN : TONE_STORY_BASE;
+  if (family === 'garden') return TONE_STORY_GARDEN;
+  if (family === 'real_estate') return TONE_STORY_REAL_ESTATE;
+  return TONE_STORY_BASE;
 }
 
 function templatesForTone(

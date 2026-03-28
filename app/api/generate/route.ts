@@ -1,12 +1,21 @@
 import { NextResponse } from 'next/server';
 import { verifyAdminRequest } from '@/lib/admin-auth';
+import { createSupabaseAdminClient } from '@/lib/supabase';
 import {
   lpIndustryToneDescriptionForPrompt,
   resolveLpIndustryTone,
 } from '@/app/lib/lp-industry';
 import { generateRawAnswerWithGemini } from '@/app/lib/gemini-lp-answer';
 import { fetchSeoDemandKeywords } from '@/app/lib/perplexity-seo-research';
+import {
+  loadLatestSuggestedKeywords,
+  normalizeResearchService,
+} from '@/app/lib/keyword-research-db';
 import { suggestRawAnswerLocal, type RawAnswerSuggestInput } from '@/app/lib/raw-answer-suggest';
+import { runHeroImagePipelineForProject } from '@/app/lib/lp-hero-pipeline';
+
+const PROJECT_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type GenerateBody = RawAnswerSuggestInput & {
   /** projects.industry_key（任意） */
@@ -16,6 +25,18 @@ type GenerateBody = RawAnswerSuggestInput & {
    * 1件以上あると Perplexity を再実行しない。
    */
   seoKeywords?: string[];
+  /**
+   * true のとき、`areaKeyForResearch`＋ service＋industryKey で keyword_research_run の最新1件だけを読む。
+   * 行が無い場合のみ既存 fetchSeoDemandKeywords（追加で1回の Perplexity）にフォールバック。
+   * true でキャッシュ済み seoKeywords がある場合は Perplexity も DB 参照もしない。
+   */
+  useKeywordResearch?: boolean;
+  /** keyword_research_run のスコープ用（地域の正規化キー） */
+  areaKeyForResearch?: string | null;
+  /** 保存済みプロジェクトに紐づく場合、ヒーロー画像が未設定ならテキスト生成の前に生成する */
+  projectId?: string | null;
+  /** true のとき hero_image_url があってもヒーローを再生成（Vertex / Storage 上書き） */
+  forceRegenerateHero?: boolean;
 };
 
 function asString(v: unknown): string {
@@ -74,6 +95,13 @@ export async function POST(request: Request) {
   const industryKey =
     typeof b.industryKey === 'string' ? b.industryKey.trim() : null;
 
+  const rawProjectId =
+    typeof b.projectId === 'string' ? b.projectId.trim() : '';
+  const linkedProjectId = PROJECT_UUID_RE.test(rawProjectId)
+    ? rawProjectId
+    : null;
+  const forceRegenerateHero = Boolean(b.forceRegenerateHero);
+
   const tone = resolveLpIndustryTone(industryKey, service);
   const industryDescription = lpIndustryToneDescriptionForPrompt(tone);
 
@@ -82,17 +110,64 @@ export async function POST(request: Request) {
     ? b.seoKeywords.filter((k) => typeof k === 'string' && k.trim().length > 0).map((k) => k.trim())
     : null;
 
+  // seoKeywords キャッシュあり → Perplexity / DB どちらも呼ばない。
   if (cached && cached.length > 0) {
     seoKeywords = cached.slice(0, 15);
   } else {
+    // useKeywordResearch かつ DB に最新 run あり → Perplexity は呼ばない。
+    // それ以外は従来どおり fetchSeoDemandKeywords で最大1回。
+    let loadedFromDb = false;
+    const useKr = Boolean(b.useKeywordResearch);
+    const areaKr =
+      typeof b.areaKeyForResearch === 'string' ? b.areaKeyForResearch.trim() : '';
+
+    if (useKr && areaKr) {
+      try {
+        const supabase = createSupabaseAdminClient();
+        const fromDb = await loadLatestSuggestedKeywords(supabase, {
+          areaKey: areaKr,
+          service: normalizeResearchService(service),
+          industryKey,
+        });
+        if (fromDb?.length) {
+          seoKeywords = fromDb.slice(0, 15);
+          loadedFromDb = true;
+        }
+      } catch (e) {
+        console.error('[api/generate] keyword_research_run read failed', e);
+      }
+    }
+
+    if (!loadedFromDb) {
+      try {
+        const research = await fetchSeoDemandKeywords({
+          industryLabel: industryDescription,
+          service,
+        });
+        seoKeywords = research.keywords;
+      } catch (e) {
+        console.error('[api/generate] perplexity research failed', e);
+      }
+    }
+  }
+
+  if (linkedProjectId) {
     try {
-      const research = await fetchSeoDemandKeywords({
-        industryLabel: industryDescription,
-        service,
-      });
-      seoKeywords = research.keywords;
+      const supabaseHero = createSupabaseAdminClient();
+      let needHero = forceRegenerateHero;
+      if (!needHero) {
+        const { data: heroRow } = await supabaseHero
+          .from('projects')
+          .select('hero_image_url')
+          .eq('id', linkedProjectId)
+          .maybeSingle();
+        needHero = !heroRow?.hero_image_url?.trim();
+      }
+      if (needHero) {
+        await runHeroImagePipelineForProject(supabaseHero, linkedProjectId);
+      }
     } catch (e) {
-      console.error('[api/generate] perplexity research failed', e);
+      console.error('[api/generate] hero pipeline (non-fatal)', e);
     }
   }
 

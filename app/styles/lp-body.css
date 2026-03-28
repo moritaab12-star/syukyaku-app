@@ -186,6 +186,22 @@
   max-width: 28rem;
 }
 
+.lp-body .lp-hero__image {
+  min-width: 0;
+}
+
+.lp-body .lp-hero__image-img {
+  width: 100%;
+  height: auto;
+  display: block;
+  aspect-ratio: 16 / 9;
+  min-height: clamp(200px, 35vw, 340px);
+  object-fit: cover;
+  border-radius: var(--lp-radius-xl);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: var(--lp-shadow-glow);
+}
+
 .lp-body .lp-hero__image-placeholder {
   min-height: clamp(200px, 35vw, 340px);
   border-radius: var(--lp-radius-xl);

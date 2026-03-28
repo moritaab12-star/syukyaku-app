@@ -30,6 +30,7 @@ type ProjectRow = {
   lp_group_id?: string | null;
   variation_seed?: number | null;
   industry_key?: string | null;
+  hero_image_url?: string | null;
 };
 
 export default function PublicLpPage() {
@@ -145,6 +146,7 @@ export default function PublicLpPage() {
       projectType: project.project_type,
       diagnosisModeTitle,
       pageUrl: previewPageUrl,
+      heroImageUrl: project.hero_image_url ?? null,
     });
     return `${jsonLdScript}\n${bodyInner}`;
   }, [view, company, project, previewPageUrl]);
