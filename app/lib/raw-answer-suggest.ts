@@ -59,7 +59,7 @@ function pickTemplate<T>(templates: readonly T[], seed: number): T {
 }
 
 /** 出力に使う地名・業種（空なら自然なフォールバック） */
-function normalizeContext(area: string, service: string) {
+export function normalizeContext(area: string, service: string) {
   const a = area.replace(/\s+/g, '').trim() || 'この辺り';
   const sv = service.replace(/\s+/g, ' ').trim() || 'お直し';
   return { area: a, service: sv };

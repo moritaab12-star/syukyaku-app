@@ -270,6 +270,18 @@ const EXTERIOR_COPY: LpHtmlSectionCopy = {
   ],
 };
 
+/** Perplexity / Gemini 用の業種説明（短い日本語） */
+export function lpIndustryToneDescriptionForPrompt(tone: LpIndustryTone): string {
+  const m: Record<LpIndustryTone, string> = {
+    garden: '植木・造園・庭の剪定・芝生・お手入れ（植木屋・造園業）',
+    roof: '屋根工事・葺き替え・雨漏り・カバー工法',
+    exterior: '外壁・塗装・防水・シーリング',
+    reform: 'リフォーム・内装・水回り・リノベーション',
+    general: '地域密着サービス（その他・未分類を含む）',
+  };
+  return m[tone];
+}
+
 export function getLpHtmlSectionCopy(tone: LpIndustryTone): LpHtmlSectionCopy {
   switch (tone) {
     case 'garden':

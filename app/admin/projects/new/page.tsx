@@ -17,7 +17,6 @@ import {
   Sparkles,
   RefreshCw,
 } from 'lucide-react';
-import { suggestRawAnswer } from '@/app/lib/raw-answer-suggest';
 import {
   LOCAL_QUESTION_BLOCKS,
   SPLIT_QUESTIONS,
@@ -133,6 +132,10 @@ function NewProjectPageContent() {
 
   /** 再生成のたびに増やし、テンプレのバリエーションを変える */
   const suggestRegenNonceRef = useRef<Record<string, number>>({});
+  /** Perplexity 由来の検索キーワード（同一エリア・サービス・業種で再利用） */
+  const seoKeywordsCacheRef = useRef<{ key: string; keywords: string[] } | null>(
+    null,
+  );
 
   const supabase = createSupabaseClient();
 
@@ -399,20 +402,55 @@ function NewProjectPageContent() {
       }
 
       const { area, service } = getSuggestAreaService();
+      const cacheKey = `${industryKey.trim()}|${service}|${area}`;
+      const cached =
+        seoKeywordsCacheRef.current?.key === cacheKey
+          ? seoKeywordsCacheRef.current.keywords
+          : null;
+
       try {
-        const text = await suggestRawAnswer({
-          questionId,
-          questionLabel,
-          area,
-          service,
-          otherAnswers: rawAnswers,
-          regenerate: mode === 'regenerate',
-          variationNonce:
-            mode === 'regenerate'
-              ? suggestRegenNonceRef.current[questionId] ?? 0
-              : 0,
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            questionId,
+            questionLabel,
+            area,
+            service,
+            otherAnswers: rawAnswers,
+            regenerate: mode === 'regenerate',
+            variationNonce:
+              mode === 'regenerate'
+                ? suggestRegenNonceRef.current[questionId] ?? 0
+                : 0,
+            industryKey: industryKey.trim() || null,
+            ...(cached && cached.length > 0 ? { seoKeywords: cached } : {}),
+          }),
         });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          answer?: string;
+          seoKeywords?: string[];
+        };
+        if (!res.ok) {
+          throw new Error(data.error || '自動生成に失敗しました');
+        }
+        const text = typeof data.answer === 'string' ? data.answer : '';
+        if (!text) {
+          throw new Error('回答が空');
+        }
         setAnswer(questionId, text);
+        if (
+          Array.isArray(data.seoKeywords) &&
+          data.seoKeywords.length > 0
+        ) {
+          seoKeywordsCacheRef.current = {
+            key: cacheKey,
+            keywords: data.seoKeywords,
+          };
+        }
         showToast(
           'success',
           mode === 'regenerate' ? '文面を再生成しました' : '文面を挿入しました',
@@ -422,7 +460,7 @@ function NewProjectPageContent() {
         showToast('error', '自動生成に失敗しました');
       }
     },
-    [rawAnswers, getSuggestAreaService, setAnswer, showToast],
+    [rawAnswers, getSuggestAreaService, setAnswer, showToast, industryKey],
   );
 
   const handleCompanyInfoChange = (
