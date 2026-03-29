@@ -3,15 +3,32 @@ import { createSupabaseClient } from '@/lib/supabase';
 import { Bot, LayoutDashboard, Plus } from 'lucide-react';
 import { ProjectsTable } from './ProjectsTable';
 
-export default async function ProjectsListPage() {
-  const supabase = createSupabaseClient();
+const LP_GROUP_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-  const { data, error } = await supabase
+export default async function ProjectsListPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ lp_group_id?: string }>;
+}) {
+  const supabase = createSupabaseClient();
+  const sp = await searchParams;
+  const lpGroupRaw =
+    typeof sp.lp_group_id === 'string' ? sp.lp_group_id.trim() : '';
+  const filterLpGroupId = LP_GROUP_UUID_RE.test(lpGroupRaw) ? lpGroupRaw : null;
+
+  let query = supabase
     .from('projects')
     .select(
       'id, company_name, project_type, status, publish_status, slug, created_at, area, service, lp_group_id',
     )
     .order('created_at', { ascending: false });
+
+  if (filterLpGroupId) {
+    query = query.eq('lp_group_id', filterLpGroupId);
+  }
+
+  const { data, error } = await query;
 
   const projects = (data ?? []) as Parameters<typeof ProjectsTable>[0]['initialProjects'];
   const fetchError = error
@@ -65,7 +82,27 @@ export default async function ProjectsListPage() {
           </div>
         )}
 
-        <ProjectsTable initialProjects={projects} />
+        {filterLpGroupId && !fetchError && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-violet-500/35 bg-violet-950/25 px-4 py-3 text-sm text-violet-100">
+            <p>
+              <span className="font-medium">今回のバッチのみ表示中</span>
+              <span className="ml-2 font-mono text-xs text-violet-200/90">
+                lp_group_id: {filterLpGroupId}
+              </span>
+            </p>
+            <Link
+              href="/admin/projects"
+              className="shrink-0 rounded-lg border border-violet-400/40 px-3 py-1.5 text-xs font-medium text-violet-100 hover:bg-violet-900/40"
+            >
+              一覧の絞り込みを解除
+            </Link>
+          </div>
+        )}
+
+        <ProjectsTable
+          initialProjects={projects}
+          filterLpGroupId={filterLpGroupId}
+        />
       </div>
     </div>
   );

@@ -2,14 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { verifyAdminRequest } from '@/lib/admin-auth';
 import { createSupabaseAdminClient } from '@/lib/supabase';
-import { parseInstruction } from '@/app/lib/agent/parseInstruction';
-import { planLpThemes } from '@/app/lib/agent/planLpThemes';
 import { executeLpGeneration } from '@/app/lib/agent/executeLpGeneration';
 import { evaluateLp } from '@/app/lib/agent/evaluateLp';
-import { researchCompetitors } from '@/app/lib/agent/researchCompetitors';
-import { extractCommonPatterns } from '@/app/lib/agent/extractCommonPatterns';
-import { selectMode } from '@/app/lib/agent/selectMode';
-import type { CommonPatternSummary } from '@/app/lib/agent/types';
+import { buildAgentPlanFromInstruction } from '@/app/lib/agent/buildAgentPlanFromInstruction';
 
 type RunBody = {
   instruction?: string;
@@ -51,38 +46,18 @@ export async function POST(request: Request) {
   const supabase = createSupabaseAdminClient();
 
   try {
-    console.error('[agent] run: parseInstruction');
-    const parsed = await parseInstruction(instruction);
-    console.error('[agent] run: planLpThemes', parsed);
+    console.error('[agent] run: buildAgentPlanFromInstruction');
+    const {
+      parsed,
+      themes,
+      themePreview,
+      patternSummary,
+      researchUsed,
+    } = await buildAgentPlanFromInstruction(instruction, useCompetitorResearch);
+    console.error('[agent] run: executeLpGeneration', parsed);
 
-    const themes = await planLpThemes(parsed);
     const planId = randomUUID();
     const lpGroupId = randomUUID();
-
-    let patternSummary: CommonPatternSummary | null = null;
-    let researchUsed = false;
-    if (useCompetitorResearch) {
-      const r = await researchCompetitors({
-        area: parsed.area || null,
-        service: parsed.service || null,
-        intentKeyword: parsed.target || parsed.appeal || null,
-      });
-      if (r.ok && r.urls.length > 0) {
-        patternSummary = await extractCommonPatterns(r.urls);
-        researchUsed = true;
-      } else {
-        console.error('[agent] research skipped or failed', r.ok === false ? r.code : '');
-      }
-    }
-
-    const themePreview = themes.map((t) => ({
-      title: t.title,
-      mode: selectMode({
-        themeTitle: t.title,
-        keyword: t.title,
-        parsed,
-      }).mode,
-    }));
 
     const exec = await executeLpGeneration({
       supabase,
@@ -99,6 +74,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           plan_id: planId,
+          lp_group_id: lpGroupId,
           created: [],
           preview: {
             parsed,
@@ -145,6 +121,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       plan_id: planId,
+      lp_group_id: lpGroupId,
       created,
       preview: {
         parsed,

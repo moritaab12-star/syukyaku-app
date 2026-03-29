@@ -23,8 +23,9 @@ import {
   getInitialRawAnswers,
   rawAnswersJsonToRecord,
 } from './questions';
-import { PublishTestPanel } from './PublishTestPanel';
+import { AgentInstructionInput } from './AgentInstructionInput';
 import type { PublishTestFocusProject } from './publish-test-types';
+import type { ParsedInstruction } from '@/app/lib/agent/types';
 
 type ProjectType = 'local' | 'saas';
 
@@ -61,7 +62,7 @@ function NewProjectPageContent() {
   const [rawAnswers, setRawAnswers] = useState<Record<string, string>>(
     getInitialRawAnswers,
   );
-  const [openBlock, setOpenBlock] = useState<number | null>(0);
+  const [openBlock, setOpenBlock] = useState<number | null>(null);
   const [targetAreas, setTargetAreas] = useState('');
   const [targetServices, setTargetServices] = useState('');
   /** 関連LP「あわせて読みたい」用。任意。DB projects.industry_key */
@@ -95,9 +96,10 @@ function NewProjectPageContent() {
     message: string;
   } | null>(null);
 
-  /** raw_answers 保存成功後に本番公開テスト UI を出す */
-  const [publishPanelVisible, setPublishPanelVisible] = useState(false);
-  const [publishPresetService, setPublishPresetService] = useState('');
+  /** AI 量産パネル用の指示文・件数プレビュー */
+  const [agentInstruction, setAgentInstruction] = useState('');
+  const [parsedCountHint, setParsedCountHint] = useState<number | null>(null);
+  const [savingAgentTemplate, setSavingAgentTemplate] = useState(false);
 
   /** ?edit=uuid 時の読み込み */
   const [editLoadState, setEditLoadState] = useState<
@@ -229,7 +231,7 @@ function NewProjectPageContent() {
           closed_days:
             typeof info.closed_days === 'string' ? info.closed_days : '',
         });
-        setOpenBlock(0);
+        setOpenBlock(null);
         const pid = typeof p.id === 'string' ? p.id : editId;
         setEditPublishContext({
           projectId: pid,
@@ -343,7 +345,7 @@ function NewProjectPageContent() {
           closed_days:
             typeof info.closed_days === 'string' ? info.closed_days : '',
         });
-        setOpenBlock(0);
+        setOpenBlock(null);
 
         const baseVs =
           typeof p.variation_seed === 'number' &&
@@ -377,6 +379,327 @@ function NewProjectPageContent() {
     },
     [],
   );
+
+  const buildLocalSavePayload = useCallback(
+    (opts?: {
+      singleTemplateCombo?: boolean;
+      /** LP生成の同期 parse 結果。area/service をテンプレと run の parsed に揃える */
+      parsedOverride?: ParsedInstruction;
+    }) => {
+      const rawAnswersPayload = LOCAL_QUESTION_BLOCKS.flatMap((block) =>
+        block.questions.map(({ id, label }) => {
+          let value = (rawAnswers[id] ?? '').trim();
+          const po = opts?.parsedOverride;
+          if (po) {
+            if (id === 'q23' && !value && po.target?.trim()) {
+              value = po.target.trim();
+            }
+            if (id === 'q33' && !value && po.appeal?.trim()) {
+              value = po.appeal.trim();
+            }
+          }
+          return {
+            id,
+            question: label,
+            answer: value,
+          };
+        }),
+      );
+
+      const companyName =
+        companyInfo.company_name.trim() ||
+        (rawAnswers.q1 ?? '').trim() ||
+        '新規プロジェクト（実店舗）';
+
+      let targetAreaInput = targetAreas.trim();
+      let serviceInputRaw = targetServices.trim();
+      if (opts?.parsedOverride) {
+        const a = opts.parsedOverride.area?.trim() ?? '';
+        const s = opts.parsedOverride.service?.trim() ?? '';
+        if (a) targetAreaInput = a;
+        if (s) serviceInputRaw = s;
+      }
+      if (opts?.singleTemplateCombo) {
+        targetAreaInput = targetAreaInput.split(/[,、，]/)[0]?.trim() || '';
+        serviceInputRaw = serviceInputRaw.split(/[,、，]/)[0]?.trim() || '';
+      }
+
+      const fallbackAreaFromAnswers = (rawAnswers.q11 ?? '').trim();
+      const resolvedAreaRaw =
+        targetAreaInput || fallbackAreaFromAnswers || '';
+      const resolvedArea =
+        resolvedAreaRaw.length > 0 ? resolvedAreaRaw : null;
+
+      const areasArray: string[] =
+        targetAreaInput.length > 0
+          ? targetAreaInput
+              .split(/[,、，]/)
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
+
+      const serviceInput =
+        serviceInputRaw.length > 0 ? serviceInputRaw : null;
+      const serviceForPublishPreset = serviceInputRaw;
+
+      const companyInfoPayload = {
+        company_name: companyInfo.company_name.trim() || null,
+        phone: companyInfo.phone.trim() || null,
+        email: companyInfo.email.trim() || null,
+        line_url: companyInfo.line_url.trim() || null,
+        address: companyInfo.address.trim() || null,
+        business_hours: companyInfo.business_hours.trim() || null,
+        closed_days: companyInfo.closed_days.trim() || null,
+      };
+
+      return {
+        rawAnswersPayload,
+        companyName,
+        resolvedArea,
+        areasArray,
+        serviceInput,
+        serviceForPublishPreset,
+        companyInfoPayload,
+      };
+    },
+    [rawAnswers, companyInfo, targetAreas, targetServices],
+  );
+
+  const saveLocalTemplateRowParsed = useCallback(
+    async (parsed: ParsedInstruction): Promise<string | null> => {
+      const parts = buildLocalSavePayload({
+        singleTemplateCombo: true,
+        parsedOverride: parsed,
+      });
+      const payloadForSaveApi = {
+        project_type: 'local' as const,
+        status: 'draft' as const,
+        company_name: parts.companyName,
+        resolved_area: parts.resolvedArea,
+        areas: parts.areasArray,
+        service: parts.serviceInput,
+        industry_key: industryKey.trim() || null,
+        raw_answers: parts.rawAnswersPayload,
+        company_info: parts.companyInfoPayload,
+        ...(effectiveLpGroupId ? { lp_group_id: effectiveLpGroupId } : {}),
+        variation_seed: variationSeedForSave,
+      };
+
+      const res = await fetch('/api/projects/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payloadForSaveApi),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.success) {
+        const msg =
+          data?.error ||
+          data?.details ||
+          'テンプレ用の下書き保存に失敗しました。';
+        showToast('error', String(msg));
+        return null;
+      }
+
+      const newId = typeof data.id === 'string' ? data.id : null;
+      const newSlug = typeof data.slug === 'string' ? data.slug : null;
+      if (newId) {
+        setPostSavePublishFocus({
+          projectId: newId,
+          slug: newSlug,
+          publishStatus: 'draft',
+          publicUrl: null,
+          savedService: parts.serviceForPublishPreset.trim() || null,
+          formService: parts.serviceForPublishPreset.trim() || null,
+        });
+      }
+      showToast(
+        'success',
+        'テンプレ用に下書きを1件保存しました。続けて LP 生成できます。',
+      );
+      return newId;
+    },
+    [
+      buildLocalSavePayload,
+      industryKey,
+      effectiveLpGroupId,
+      variationSeedForSave,
+      showToast,
+    ],
+  );
+
+  const runParseInstruction = useCallback(
+    async (instruction: string): Promise<ParsedInstruction | null> => {
+      const trimmed = instruction.trim();
+      if (!trimmed) return null;
+      try {
+        const res = await fetch('/api/admin/agent/parse', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instruction: trimmed }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          showToast(
+            'error',
+            typeof j?.error === 'string'
+              ? j.error
+              : '認可に失敗しました。/admin/login でログインしてください。',
+          );
+          return null;
+        }
+        if (!res.ok || !j?.parsed || typeof j.parsed !== 'object') {
+          showToast(
+            'error',
+            typeof j?.error === 'string'
+              ? j.error
+              : '指示の解析に失敗しました。',
+          );
+          return null;
+        }
+        return j.parsed as ParsedInstruction;
+      } catch (e) {
+        console.error(e);
+        showToast('error', '指示の解析に失敗しました。');
+        return null;
+      }
+    },
+    [showToast],
+  );
+
+  const patchLocalTemplateRow = useCallback(
+    async (projectId: string, parsed: ParsedInstruction): Promise<boolean> => {
+      const parts = buildLocalSavePayload({
+        singleTemplateCombo: true,
+        parsedOverride: parsed,
+      });
+      try {
+        const res = await fetch(`/api/projects/${projectId}`, {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company_name: parts.companyName,
+            resolved_area: parts.resolvedArea,
+            areas: parts.areasArray,
+            service: parts.serviceInput,
+            industry_key: industryKey.trim() || null,
+            raw_answers: parts.rawAnswersPayload,
+            company_info: parts.companyInfoPayload,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) {
+          showToast(
+            'error',
+            String(data?.error ?? 'テンプレ行の更新に失敗しました。'),
+          );
+          return false;
+        }
+        return true;
+      } catch (err) {
+        console.error(err);
+        showToast('error', 'テンプレ行の更新に失敗しました。');
+        return false;
+      }
+    },
+    [buildLocalSavePayload, industryKey, showToast],
+  );
+
+  const ensureTemplateForAgentRun = useCallback(
+    async (instruction: string): Promise<string | null> => {
+      if (projectType !== 'local') return null;
+      const parsed = await runParseInstruction(instruction);
+      if (!parsed) return null;
+
+      setSavingAgentTemplate(true);
+      try {
+        if (isEditMode && editId.trim()) {
+          const id = editId.trim();
+          const ok = await patchLocalTemplateRow(id, parsed);
+          return ok ? id : null;
+        }
+        const existing = postSavePublishFocus?.projectId?.trim();
+        if (existing) {
+          const ok = await patchLocalTemplateRow(existing, parsed);
+          return ok ? existing : null;
+        }
+        return saveLocalTemplateRowParsed(parsed);
+      } finally {
+        setSavingAgentTemplate(false);
+      }
+    },
+    [
+      projectType,
+      runParseInstruction,
+      isEditMode,
+      editId,
+      postSavePublishFocus?.projectId,
+      patchLocalTemplateRow,
+      saveLocalTemplateRowParsed,
+    ],
+  );
+
+  useEffect(() => {
+    const t = agentInstruction.trim();
+    if (!t) {
+      setParsedCountHint(null);
+      return;
+    }
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch('/api/admin/agent/parse', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instruction: t }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j?.parsed || typeof j.parsed !== 'object') return;
+        const p = j.parsed as {
+          area?: string;
+          service?: string;
+          count?: number;
+          target?: string;
+          appeal?: string;
+        };
+        const count =
+          typeof p.count === 'number' && Number.isFinite(p.count)
+            ? p.count
+            : null;
+        if (count != null) setParsedCountHint(count);
+
+        if (typeof p.area === 'string' && p.area.trim()) {
+          setTargetAreas((prev) => (prev.trim() ? prev : p.area!.trim()));
+        }
+        if (typeof p.service === 'string' && p.service.trim()) {
+          setTargetServices((prev) => (prev.trim() ? prev : p.service!.trim()));
+        }
+        /* 指示の target / appeal → q23（顧客の不安）・q33（安さの理由）へ空欄時のみ提案 */
+        const targetStr =
+          typeof p.target === 'string' && p.target.trim() ? p.target.trim() : '';
+        const appealStr =
+          typeof p.appeal === 'string' && p.appeal.trim() ? p.appeal.trim() : '';
+        if (targetStr || appealStr) {
+          setRawAnswers((prev) => {
+            let next = prev;
+            if (!(prev.q23 ?? '').trim() && targetStr) {
+              next = { ...next, q23: targetStr };
+            }
+            if (!(prev.q33 ?? '').trim() && appealStr) {
+              next = { ...next, q33: appealStr };
+            }
+            return next;
+          });
+        }
+      } catch {
+        /* オプション補完のため握りつぶし */
+      }
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [agentInstruction]);
 
   const setAnswer = useCallback((id: string, value: string) => {
     setRawAnswers((prev) => ({ ...prev, [id]: value }));
@@ -596,57 +919,17 @@ function NewProjectPageContent() {
 
   const handleSubmitLocal = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Supabase への保存は Next.js API 経由で行うため、
-    // ここでは API に渡す payload を組み立てる。
+    const {
+      rawAnswersPayload,
+      companyName,
+      resolvedArea,
+      areasArray,
+      serviceInput,
+      serviceForPublishPreset,
+      companyInfoPayload,
+    } = buildLocalSavePayload();
 
-    const rawAnswersPayload = LOCAL_QUESTION_BLOCKS.flatMap((block) =>
-      block.questions.map(({ id, label }) => {
-        const value = (rawAnswers[id] ?? '').trim();
-        return {
-          id,
-          question: label,
-          // 空文字はそのまま送る（JSONBに格納するだけなので制約に引っかからない）
-          answer: value,
-        };
-      }),
-    );
-
-    const companyName =
-      companyInfo.company_name.trim() ||
-      (rawAnswers.q1 ?? '').trim() ||
-      '新規プロジェクト（実店舗）';
     const status = 'draft';
-    // 入力されたターゲットエリア（q11もフォールバックとして利用）
-    const fallbackAreaFromAnswers = (rawAnswers.q11 ?? '').trim();
-    const targetAreaInput = targetAreas.trim();
-    const resolvedAreaRaw =
-      targetAreaInput || fallbackAreaFromAnswers || '';
-    const resolvedArea =
-      resolvedAreaRaw.length > 0 ? resolvedAreaRaw : null;
-
-    // areas はターゲットエリアをカンマ区切りで配列化したもの
-    const areasArray: string[] =
-      targetAreaInput.length > 0
-        ? targetAreaInput
-            .split(/[,、，]/)
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : [];
-
-    // 対応サービス（カンマ区切りで複数可 → save API で直積分割）
-    const serviceInputRaw = targetServices.trim();
-    const serviceInput = serviceInputRaw.length > 0 ? serviceInputRaw : null;
-    const serviceForPublishPreset = serviceInputRaw;
-
-    const companyInfoPayload = {
-      company_name: companyInfo.company_name.trim() || null,
-      phone: companyInfo.phone.trim() || null,
-      email: companyInfo.email.trim() || null,
-      line_url: companyInfo.line_url.trim() || null,
-      address: companyInfo.address.trim() || null,
-      business_hours: companyInfo.business_hours.trim() || null,
-      closed_days: companyInfo.closed_days.trim() || null,
-    };
 
     const payloadForSaveApi = {
       project_type: 'local' as const,
@@ -685,9 +968,7 @@ function NewProjectPageContent() {
             String(data?.error || '更新に失敗しました。'),
           );
         }
-        showToast('success', '保存しました。本番公開テストを開きます。');
-        setPublishPresetService(serviceForPublishPreset);
-        setPublishPanelVisible(true);
+        showToast('success', '保存しました。');
         const slugBack = typeof data.slug === 'string' ? data.slug : null;
         setEditPublishContext((prev) =>
           prev
@@ -695,8 +976,8 @@ function NewProjectPageContent() {
                 ...prev,
                 slug: slugBack ?? prev.slug,
                 savedService:
-                  serviceInputRaw.length > 0
-                    ? serviceInputRaw
+                  serviceForPublishPreset.trim().length > 0
+                    ? serviceForPublishPreset.trim()
                     : prev.savedService,
               }
             : prev,
@@ -707,6 +988,7 @@ function NewProjectPageContent() {
       const res = await fetch('/api/projects/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(payloadForSaveApi),
       });
       const data = await res.json().catch(() => ({}));
@@ -724,11 +1006,9 @@ function NewProjectPageContent() {
       showToast(
         'success',
         splitCount > 1
-          ? `${splitCount} 件のプロジェクトを保存しました（先頭が親。本番公開テストの基点は親の id / slug です）。`
+          ? `${splitCount} 件のプロジェクトを保存しました（先頭が親の id / slug です。一覧から確認できます）。`
           : 'プロジェクトを保存しました。一覧からLPを確認できます。',
       );
-      setPublishPresetService(serviceForPublishPreset);
-      setPublishPanelVisible(true);
       const newId = typeof data.id === 'string' ? data.id : null;
       const newSlug = typeof data.slug === 'string' ? data.slug : null;
       if (newId) {
@@ -933,25 +1213,6 @@ function NewProjectPageContent() {
     }
   };
 
-  const publishDrawerAllowed =
-    projectType === 'local' &&
-    (!isEditMode || editLoadState === 'ok') &&
-    (!isCloneMode || cloneLoadState === 'ok');
-
-  const publishFocusProject: PublishTestFocusProject | null =
-    isEditMode && editLoadState === 'ok' && editPublishContext
-      ? {
-          ...editPublishContext,
-          formService: targetServices.trim() || null,
-        }
-      : postSavePublishFocus;
-
-  const publishPresetMerged = isEditMode
-    ? targetServices.trim() ||
-      editPublishContext?.savedService ||
-      ''
-    : publishPresetService;
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       {toast && (
@@ -1090,6 +1351,21 @@ function NewProjectPageContent() {
           {(!isEditMode || editLoadState === 'ok') &&
             (!isCloneMode || cloneLoadState === 'ok') && (
             <>
+          {projectType === 'local' && (
+            <AgentInstructionInput
+              instruction={agentInstruction}
+              onInstructionChange={setAgentInstruction}
+              ensureTemplateForAgentRun={ensureTemplateForAgentRun}
+              parsedCountHint={parsedCountHint}
+              disabled={
+                isSubmitting ||
+                savingAgentTemplate ||
+                (isEditMode && editLoadState !== 'ok') ||
+                (isCloneMode && cloneLoadState !== 'ok')
+              }
+              showToast={showToast}
+            />
+          )}
           {projectType === 'local' && exportJson && (
             <section className="mb-6 space-y-2 rounded-2xl border border-amber-500/40 bg-amber-950/30 p-4">
               <div className="flex items-center justify-between gap-2">
@@ -1194,69 +1470,81 @@ function NewProjectPageContent() {
           {projectType === 'local' ? (
             <>
             <form onSubmit={handleSubmitLocal} className="space-y-4">
-              {LOCAL_QUESTION_BLOCKS.map((block, blockIndex) => (
-                <div
-                  key={blockIndex}
-                  className="rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden"
-                >
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setOpenBlock(openBlock === blockIndex ? null : blockIndex)
-                    }
-                    className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-slate-800/60"
-                  >
-                    <span className="font-semibold text-slate-100">
-                      ブロック{blockIndex + 1}：{block.title}
-                    </span>
-                    {openBlock === blockIndex ? (
-                      <ChevronUp className="h-5 w-5 text-slate-400" />
-                    ) : (
-                      <ChevronDown className="h-5 w-5 text-slate-400" />
-                    )}
-                  </button>
-                  {openBlock === blockIndex && (
-                    <div className="space-y-4 border-t border-slate-800 p-5">
-                      {block.questions.map(({ id, label }) => (
-                        <div key={id} className="space-y-2">
-                          <label className={labelClass}>
-                            {label}
-                          </label>
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                            <textarea
-                              value={rawAnswers[id] ?? ''}
-                              onChange={(e) => setAnswer(id, e.target.value)}
-                              placeholder={`例：${label}について入力`}
-                              rows={3}
-                              className={`${inputClass} min-h-[5rem] flex-1`}
-                            />
-                            <div className="flex shrink-0 flex-col gap-1.5 sm:w-[8.5rem]">
-                              <button
-                                type="button"
-                                onClick={() => handleSuggestAnswer(id, label, 'fill')}
-                                className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/50 bg-amber-950/40 px-3 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-900/50"
-                                title="空欄なら挿入。入力済みの場合は確認後に上書き"
-                              >
-                                <Sparkles className="h-3.5 w-3.5" />
-                                自動生成
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleSuggestAnswer(id, label, 'regenerate')}
-                                className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-600 bg-slate-800/80 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-slate-700"
-                                title="別の言い回しで上書き"
-                              >
-                                <RefreshCw className="h-3.5 w-3.5" />
-                                再生成
-                              </button>
+              <details className="rounded-2xl border border-slate-800 bg-slate-900/40">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 font-semibold text-slate-100 outline-none hover:bg-slate-800/50 [&::-webkit-details-marker]:hidden">
+                  <span>詳細（50問）</span>
+                  <ChevronDown className="h-5 w-5 shrink-0 text-slate-400" />
+                </summary>
+                <div className="space-y-4 border-t border-slate-800 p-3 sm:p-4">
+                  {LOCAL_QUESTION_BLOCKS.map((block, blockIndex) => (
+                    <div
+                      key={blockIndex}
+                      className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60"
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenBlock(openBlock === blockIndex ? null : blockIndex)
+                        }
+                        className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-slate-800/60"
+                      >
+                        <span className="font-semibold text-slate-100">
+                          ブロック{blockIndex + 1}：{block.title}
+                        </span>
+                        {openBlock === blockIndex ? (
+                          <ChevronUp className="h-5 w-5 text-slate-400" />
+                        ) : (
+                          <ChevronDown className="h-5 w-5 text-slate-400" />
+                        )}
+                      </button>
+                      {openBlock === blockIndex && (
+                        <div className="space-y-4 border-t border-slate-800 p-5">
+                          {block.questions.map(({ id, label }) => (
+                            <div key={id} className="space-y-2">
+                              <label className={labelClass}>
+                                {label}
+                              </label>
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                                <textarea
+                                  value={rawAnswers[id] ?? ''}
+                                  onChange={(e) => setAnswer(id, e.target.value)}
+                                  placeholder={`例：${label}について入力`}
+                                  rows={3}
+                                  className={`${inputClass} min-h-[5rem] flex-1`}
+                                />
+                                <div className="flex shrink-0 flex-col gap-1.5 sm:w-[8.5rem]">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleSuggestAnswer(id, label, 'fill')
+                                    }
+                                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/50 bg-amber-950/40 px-3 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-900/50"
+                                    title="空欄なら挿入。入力済みの場合は確認後に上書き"
+                                  >
+                                    <Sparkles className="h-3.5 w-3.5" />
+                                    自動生成
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleSuggestAnswer(id, label, 'regenerate')
+                                    }
+                                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-600 bg-slate-800/80 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-slate-700"
+                                    title="別の言い回しで上書き"
+                                  >
+                                    <RefreshCw className="h-3.5 w-3.5" />
+                                    再生成
+                                  </button>
+                                </div>
+                              </div>
                             </div>
-                          </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
+                  ))}
                 </div>
-              ))}
+              </details>
               <div className="flex flex-col items-end gap-2 pt-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
@@ -1288,17 +1576,6 @@ function NewProjectPageContent() {
                 </button>
               </div>
             </form>
-            {publishDrawerAllowed && !publishPanelVisible && (
-              <div className="mt-4 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setPublishPanelVisible(true)}
-                  className="text-xs text-slate-400 underline decoration-slate-600 underline-offset-2 hover:text-slate-200"
-                >
-                  本番公開テスト（右パネル）を開く
-                </button>
-              </div>
-            )}
             </>
           ) : (
             <form onSubmit={handleSubmitSaas} className="space-y-6 md:space-y-7">
@@ -1495,15 +1772,6 @@ function NewProjectPageContent() {
           )}
         </main>
       </div>
-      <PublishTestPanel
-        visible={publishPanelVisible && publishDrawerAllowed}
-        presetService={publishPresetMerged}
-        focusProject={publishFocusProject}
-        onDismiss={() => {
-          setPublishPanelVisible(false);
-          setPostSavePublishFocus(null);
-        }}
-      />
     </div>
   );
 }

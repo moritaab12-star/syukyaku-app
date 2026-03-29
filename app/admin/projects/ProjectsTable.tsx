@@ -40,6 +40,8 @@ export type Project = {
 
 type Props = {
   initialProjects: Project[];
+  /** サーバーが lp_group_id で絞り込んだとき、表示の文脈用（任意） */
+  filterLpGroupId?: string | null;
 };
 
 function formatDate(s: string | null) {
@@ -55,7 +57,10 @@ function formatDate(s: string | null) {
   }
 }
 
-export function ProjectsTable({ initialProjects }: Props) {
+export function ProjectsTable({
+  initialProjects,
+  filterLpGroupId = null,
+}: Props) {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -77,6 +82,11 @@ export function ProjectsTable({ initialProjects }: Props) {
   useEffect(() => {
     setProjects(initialProjects);
   }, [initialProjects]);
+
+  const filteredBatchLabel =
+    filterLpGroupId != null && filterLpGroupId.trim() !== ''
+      ? `（同一 lp_group のみ ${projects.length} 件）`
+      : '';
 
   useEffect(() => {
     if (!lpDrawerOpen) {
@@ -234,7 +244,12 @@ export function ProjectsTable({ initialProjects }: Props) {
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
-            <span className="text-sm text-slate-400">{projects.length} 件</span>
+            <span className="text-sm text-slate-400">
+              {projects.length} 件
+              {filteredBatchLabel ? (
+                <span className="text-violet-300/90">{filteredBatchLabel}</span>
+              ) : null}
+            </span>
             <div className="flex flex-wrap items-center gap-2">
               {bulkDeleteError && (
                 <p className="max-w-md text-xs text-amber-200">{bulkDeleteError}</p>
