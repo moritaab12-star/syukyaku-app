@@ -57,7 +57,7 @@ export async function GET(
     const { data, error } = await supabase
       .from('projects')
       .select(
-        'id, slug, project_type, company_name, status, raw_answers, company_info, area, service, industry_key, target_area, areas, publish_status, wp_page_id, wp_url, lp_group_id, variation_seed',
+        'id, slug, project_type, company_name, status, raw_answers, company_info, area, service, industry_key, target_area, areas, publish_status, wp_page_id, wp_url, lp_group_id, variation_seed, fv_catch_headline, fv_catch_subheadline, lp_ui_copy',
       )
       .eq('id', id)
       .maybeSingle();

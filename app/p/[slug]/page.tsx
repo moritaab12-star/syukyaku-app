@@ -7,10 +7,25 @@ import { useParams } from 'next/navigation';
 import { createSupabaseClient } from '@/lib/supabase';
 import { Store } from 'lucide-react';
 import { buildLpViewModel, type LpViewModel } from '@/app/lib/lp-template';
+import { parseLpUiCopy } from '@/app/lib/lp-ui-copy';
 import type { CompanyInfoDisplay } from '@/app/lib/companyInfoFormatter';
 import { buildLpHtmlMarkup } from '@/app/lib/lpToHtmlCore';
 import { fetchRelatedProjectRows, buildAnchorTitle, type RelatedLink } from '@/app/lib/related-links';
 import { fetchProjectBySlugOrId } from '@/app/lib/project-by-slug-or-id';
+import type { AgentAppealMode } from '@/app/lib/agent/types';
+
+const AGENT_MODES: AgentAppealMode[] = [
+  'price',
+  'trust',
+  'empathy',
+  'urgency',
+  'local',
+];
+
+function parseAgentMode(m: string | null | undefined): AgentAppealMode | null {
+  const s = (m ?? '').trim();
+  return AGENT_MODES.includes(s as AgentAppealMode) ? (s as AgentAppealMode) : null;
+}
 
 type ProjectRow = {
   id: string;
@@ -31,6 +46,10 @@ type ProjectRow = {
   variation_seed?: number | null;
   industry_key?: string | null;
   hero_image_url?: string | null;
+  fv_catch_headline?: string | null;
+  fv_catch_subheadline?: string | null;
+  lp_ui_copy?: unknown;
+  mode?: string | null;
 };
 
 export default function PublicLpPage() {
@@ -59,7 +78,7 @@ export default function PublicLpPage() {
           await fetchProjectBySlugOrId(
             supabase,
             slug,
-            'id, slug, company_name, project_type, raw_answers, company_info, area, service, industry_key, target_area, areas, keyword, intent, publish_status, lp_group_id, variation_seed',
+            'id, slug, company_name, project_type, raw_answers, company_info, area, service, industry_key, target_area, areas, keyword, intent, publish_status, lp_group_id, variation_seed, hero_image_url, fv_catch_headline, fv_catch_subheadline, lp_ui_copy, mode',
           );
         if (projectErr || !projectData) {
           setError('プロジェクトが見つかりません');
@@ -102,6 +121,8 @@ export default function PublicLpPage() {
             ? Math.trunc(proj.variation_seed)
             : 0;
 
+        const lpUiCopy = parseLpUiCopy(proj.lp_ui_copy);
+
         const { view, company } = buildLpViewModel(proj.raw_answers, {
           projectType: proj.project_type,
           fallbackName: proj.company_name ?? undefined,
@@ -116,6 +137,10 @@ export default function PublicLpPage() {
           projectStableId: proj.id,
           lpGroupId: proj.lp_group_id ?? undefined,
           variationSeed: vs,
+          fvCatchHeadline: proj.fv_catch_headline ?? null,
+          fvCatchSubheadline: proj.fv_catch_subheadline ?? null,
+          lpUiCopy,
+          agentMode: parseAgentMode(proj.mode),
         });
         setView(view);
         setCompany(company);
@@ -140,6 +165,7 @@ export default function PublicLpPage() {
       view.diagnosisMode === 'diagnosis'
         ? '3つ当てはまったら早めの診断をおすすめします'
         : 'まずは無料相談からはじめませんか？';
+    const uiCopy = parseLpUiCopy(project.lp_ui_copy);
     const { jsonLdScript, bodyInner } = buildLpHtmlMarkup({
       view,
       company,
@@ -147,6 +173,7 @@ export default function PublicLpPage() {
       diagnosisModeTitle,
       pageUrl: previewPageUrl,
       heroImageUrl: project.hero_image_url ?? null,
+      uiCopy,
     });
     return `${jsonLdScript}\n${bodyInner}`;
   }, [view, company, project, previewPageUrl]);

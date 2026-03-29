@@ -20,6 +20,8 @@ import {
   resolveLpIndustryTone,
   type LpIndustryTone,
 } from './lp-industry';
+import type { LpUiCopy } from './lp-ui-copy';
+import type { AgentAppealMode } from '@/app/lib/agent/types';
 
 export type LpViewModel = {
   headline: string;
@@ -98,6 +100,16 @@ export type BuildLpViewModelOpts = {
   includePillarLink?: boolean;
   /** projects.industry_key。未設定時は service から推定 */
   industryKey?: string | null;
+  /** projects.fv_catch_headline — 指定時はヒーロー見出しとして優先 */
+  fvCatchHeadline?: string | null;
+  /** projects.fv_catch_subheadline — 指定時はヒーローリードとして優先 */
+  fvCatchSubheadline?: string | null;
+  /** projects.lp_ui_copy をパースしたもの。headline / subheadline があれば fv_catch より優先 */
+  lpUiCopy?: LpUiCopy | null;
+  /** エージェント訴求モード（未指定時は挙動は従来どおり） */
+  agentMode?: AgentAppealMode | null;
+  /** `lpUiCopy` への追加マージ（エージェント強化。`lpUiCopy` より上書き） */
+  agentEnhancements?: Partial<LpUiCopy> | null;
 };
 
 function resolveAreaName(
@@ -348,12 +360,45 @@ export function buildLpViewModel(
     trustCases,
     priceRows,
     faqItems,
-    diagnosisMode:
-      opts.projectType === 'saas' ? 'consultation' : 'diagnosis',
+    diagnosisMode: (() => {
+      if (opts.projectType === 'saas') return 'consultation' as const;
+      const m = opts.agentMode;
+      if (m === 'empathy') return 'consultation' as const;
+      if (m === 'urgency') return 'diagnosis' as const;
+      return 'diagnosis' as const;
+    })(),
     industryTone,
   };
 
-  const view = applyLpTemplateTextVariations(baseView, blockSeed);
+  let view = applyLpTemplateTextVariations(baseView, blockSeed);
+
+  const mergedUi: LpUiCopy | null | undefined = (() => {
+    const base = opts.lpUiCopy;
+    const enh = opts.agentEnhancements;
+    if (!enh || Object.keys(enh).length === 0) return base ?? undefined;
+    return { ...(base ?? {}), ...enh };
+  })();
+
+  const uiH =
+    typeof mergedUi?.headline === 'string' ? mergedUi.headline.trim() : '';
+  const uiS =
+    typeof mergedUi?.subheadline === 'string'
+      ? mergedUi.subheadline.trim()
+      : '';
+  const fvH =
+    typeof opts.fvCatchHeadline === 'string' ? opts.fvCatchHeadline.trim() : '';
+  const fvS =
+    typeof opts.fvCatchSubheadline === 'string'
+      ? opts.fvCatchSubheadline.trim()
+      : '';
+  const finalH = uiH || fvH;
+  const finalS = uiS || fvS;
+  if (finalH) {
+    view = { ...view, headline: finalH };
+  }
+  if (finalS) {
+    view = { ...view, subheadline: finalS };
+  }
 
   return { normalized, facts, view, company, service: serviceName, area: areaName, intent };
 }

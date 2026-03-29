@@ -1,3 +1,7 @@
+/**
+ * LP アンケート設問（q1〜q50）。
+ * 生成時の「事実アンカー / 独自性」振り分けは `app/config/question-roles.ts` と整合させること。
+ */
 /** ターゲットエリア・対応サービス（分割用） */
 export const SPLIT_QUESTIONS = [
   {

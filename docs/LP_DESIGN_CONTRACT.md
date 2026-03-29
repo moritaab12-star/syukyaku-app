@@ -31,4 +31,10 @@
 
 ---
 
+## 5. 参照LPリサーチ・構造ルール化（チャーター）
+
+業種別に他社LPを調査し**構造のみ**抽出して量産ルールに落とす要件は、`docs/lp-research-engine-charter.md` に定義する。コピー禁止・2件以上共通採用・既存レンダラ単一系はそちらを正とする。既存 API / `lp-industry` / `buildLpHtmlMarkup` との接続・LP 判定基準・置き場所は `docs/lp-research-engine-phase0.md` を参照する。
+
+---
+
 *改定時は本ファイルと `buildLpHtmlMarkup` / `lp-body.css` のレビューをセットで更新する。*

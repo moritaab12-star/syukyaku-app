@@ -20,6 +20,11 @@
  */
 
 import { getBlockForQuestionId, type LpBlockKey } from '@/app/config/block-map';
+import {
+  RAW_ANSWER_GROUNDING_QUESTION_IDS,
+  RAW_ANSWER_VOICE_ONLY_QUESTION_IDS,
+} from '@/app/config/question-roles';
+import { Q50_LABELS } from '@/app/admin/projects/new/questions';
 import { resolveLpIndustryTone, type LpIndustryTone } from '@/app/lib/lp-industry';
 
 export type ServiceFamily =
@@ -89,41 +94,72 @@ export function normalizeContext(area: string, service: string) {
   return { area: a, service: sv };
 }
 
-const MAX_OTHER_ANSWER_ENTRIES = 12;
-const MAX_CHARS_PER_OTHER_ANSWER = 100;
-const MAX_TOTAL_CONTEXT_SNIPPET = 400;
+/** 事実アンカー（Grounding）コンテキストの上限 */
+const GROUNDING_MAX_CHARS_PER_ANSWER = 420;
+const GROUNDING_MAX_TOTAL = 6500;
+/** 独自性（Voice）コンテキストの上限（Grounding の後に付与） */
+const VOICE_MAX_CHARS_PER_ANSWER = 280;
+const VOICE_MAX_TOTAL = 2800;
+
+function trimAnswerLine(s: string, maxChars: number): string {
+  const t = (s ?? '').trim().replace(/\s+/g, ' ');
+  if (t.length <= maxChars) return t;
+  return `${t.slice(0, maxChars)}…`;
+}
+
+function buildTierContextLines(
+  orderedIds: readonly string[],
+  excludeQuestionId: string,
+  otherAnswers: Record<string, string>,
+  maxPerAnswer: number,
+  maxTotal: number,
+): string {
+  const ex = excludeQuestionId.trim().toLowerCase();
+  const lines: string[] = [];
+  for (const id of orderedIds) {
+    const key = id.trim().toLowerCase();
+    if (!key || key === ex) continue;
+    const raw = otherAnswers[id] ?? otherAnswers[key];
+    const trimmed = trimAnswerLine(String(raw ?? ''), maxPerAnswer);
+    if (!trimmed) continue;
+    const label = Q50_LABELS[id] ?? Q50_LABELS[key] ?? id;
+    lines.push(`・${label}: ${trimmed}`);
+  }
+  let out = lines.join('\n');
+  if (out.length > maxTotal) {
+    out = `${out.slice(0, maxTotal)}…`;
+  }
+  return out;
+}
 
 /**
- * 他設問の回答から短い抜粋を作る（空・現在設問は除外、長さガード）。
- * 公開しておき、テストや将来の API 層から再利用しやすくする。
+ * 他設問の回答から LLM 向けコンテキストを作る。
+ * - 先に「事実アンカー（Grounding）」を厚く載せ、続けて「ストーリー・差別化（Voice only）」を載せる。
+ * - 設問→役割の対応は `app/config/question-roles.ts`。
  */
 export function buildOtherAnswersContextSnippet(
   excludeQuestionId: string,
   otherAnswers?: Record<string, string>,
 ): string {
   if (!otherAnswers) return '';
+  const grounding = buildTierContextLines(
+    RAW_ANSWER_GROUNDING_QUESTION_IDS,
+    excludeQuestionId,
+    otherAnswers,
+    GROUNDING_MAX_CHARS_PER_ANSWER,
+    GROUNDING_MAX_TOTAL,
+  );
+  const voice = buildTierContextLines(
+    RAW_ANSWER_VOICE_ONLY_QUESTION_IDS,
+    excludeQuestionId,
+    otherAnswers,
+    VOICE_MAX_CHARS_PER_ANSWER,
+    VOICE_MAX_TOTAL,
+  );
   const parts: string[] = [];
-  const entries = Object.entries(otherAnswers)
-    .filter(([k, v]) => k !== excludeQuestionId && (v ?? '').trim().length > 0)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(0, MAX_OTHER_ANSWER_ENTRIES);
-
-  for (const [, v] of entries) {
-    const t = (v ?? '').trim().replace(/\s+/g, ' ');
-    if (!t) continue;
-    const cut =
-      t.length > MAX_CHARS_PER_OTHER_ANSWER
-        ? `${t.slice(0, MAX_CHARS_PER_OTHER_ANSWER)}…`
-        : t;
-    parts.push(cut);
-  }
-
-  if (parts.length === 0) return '';
-  let joined = parts.join(' ');
-  if (joined.length > MAX_TOTAL_CONTEXT_SNIPPET) {
-    joined = `${joined.slice(0, MAX_TOTAL_CONTEXT_SNIPPET)}…`;
-  }
-  return joined;
+  if (grounding) parts.push(`【事実アンカー（必須参照・他設問）】\n${grounding}`);
+  if (voice) parts.push(`【ストーリー・差別化（他設問）】\n${voice}`);
+  return parts.join('\n\n');
 }
 
 /** @deprecated 推定ロジックは `resolveLpIndustryTone` に集約済み */

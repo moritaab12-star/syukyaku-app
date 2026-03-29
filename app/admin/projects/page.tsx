@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { createSupabaseClient } from '@/lib/supabase';
-import { LayoutDashboard, Plus } from 'lucide-react';
+import { Bot, LayoutDashboard, Plus } from 'lucide-react';
 import { ProjectsTable } from './ProjectsTable';
 
 export default async function ProjectsListPage() {
@@ -36,6 +36,13 @@ export default async function ProjectsListPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <Link
+              href="/admin/projects/agent"
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-700/60 bg-emerald-950/40 px-4 py-2.5 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-900/50"
+            >
+              <Bot className="h-4 w-4" />
+              エージェント
+            </Link>
             <Link
               href="/admin/projects/new"
               className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2.5 text-sm font-semibold text-sky-950 shadow-lg shadow-sky-500/30 transition hover:bg-sky-400 active:scale-95"

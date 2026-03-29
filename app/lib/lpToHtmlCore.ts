@@ -1,5 +1,8 @@
 import type { CompanyInfoDisplay } from './companyInfoFormatter';
 import type { LpViewModel } from './lp-template';
+import type { LpUiCopy } from './lp-ui-copy';
+import type { RecommendedSectionRole } from '@/types/industry';
+import type { GeneratedLp, LpGenerationRule } from '@/types/lp';
 import { buildLocalBusinessJsonLd } from './buildLocalBusinessJsonLd';
 import { LP_REVEAL_ATTR } from './lpRevealAttr';
 import { getLpHtmlSectionCopy } from './lp-industry';
@@ -11,6 +14,41 @@ function esc(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function insertAllBlocksBeforeFooter(chunks: string[], allBlocksHtml: string): string[] {
+  const insert = allBlocksHtml.trim();
+  if (!insert) return chunks;
+  const fi = chunks.findIndex((c) => c.includes('id="lp-footer"'));
+  if (fi === -1) return [...chunks, insert];
+  const copy = chunks.slice();
+  copy.splice(fi, 0, insert);
+  return copy;
+}
+
+/** `LpGenerationRule.section_order` に従いレジストリの HTML を並べる（診断/相談は1ブロックに統合） */
+function orderBodyByGenerationRule(
+  sectionOrder: RecommendedSectionRole[],
+  registry: Partial<Record<RecommendedSectionRole, string>>,
+  allBlocksHtml: string,
+): string {
+  const out: string[] = [];
+  let diagnosisEmitted = false;
+  for (const role of sectionOrder) {
+    if (role === 'diagnosis' || role === 'consultation') {
+      if (!diagnosisEmitted) {
+        const block = registry.diagnosis;
+        if (block?.trim()) out.push(block);
+        diagnosisEmitted = true;
+      }
+      continue;
+    }
+    const block = registry[role];
+    if (block?.trim()) out.push(block);
+  }
+  return insertAllBlocksBeforeFooter(out, allBlocksHtml)
+    .filter((s) => s.trim().length > 0)
+    .join('\n');
 }
 
 export type LpToHtmlInput = {
@@ -30,6 +68,12 @@ export type LpToHtmlInput = {
   templateSeed?: number;
   /** Supabase 等の公開 URL。あればヒーロー `<img>`、なければプレースホルダ */
   heroImageUrl?: string | null;
+  /** projects.lp_ui_copy をパースしたもの。あれば CTA・悩み/診断ブロック等を差し替え */
+  uiCopy?: LpUiCopy | null;
+  /** Phase 4–5: 調査ベースのセクション順。指定時はセクションをこの順に並べ替え（中身は既存マークアップ） */
+  generationRule?: LpGenerationRule | null;
+  /** 生成層の出力。title/subtitle/faq を view に上書きしてから HTML を組む */
+  generatedLp?: GeneratedLp | null;
 };
 
 /**
@@ -41,8 +85,22 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
   jsonLdScript: string;
   bodyInner: string;
 } {
-  const { view, company, projectType, diagnosisModeTitle, pageUrl, heroImageUrl } =
-    input;
+  const { company, projectType, diagnosisModeTitle, pageUrl, heroImageUrl } = input;
+  const view: LpViewModel = (() => {
+    const v = input.view;
+    const g = input.generatedLp;
+    if (!g) return v;
+    return {
+      ...v,
+      headline: (g.title ?? '').trim() || v.headline,
+      subheadline: (g.subtitle ?? '').trim() || v.subheadline,
+      faqItems:
+        Array.isArray(g.faq) && g.faq.length > 0
+          ? g.faq.map((x) => ({ q: x.q, a: x.a }))
+          : v.faqItems,
+    };
+  })();
+  const u = input.uiCopy ?? undefined;
   const resolvedDiagnosisTitle =
     typeof view.diagnosisSectionTitleOverride === 'string' &&
     view.diagnosisSectionTitleOverride.trim().length > 0
@@ -52,26 +110,46 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
   const ld = buildLocalBusinessJsonLd({ company, view, pageUrl });
   const jsonLdScript = `<script type="application/ld+json">${JSON.stringify(ld)}</script>`;
 
-  const badgeLabel = `${esc(view.areaName)}の${projectType === 'saas' ? 'SaaS・Webサービス' : '専門サービス'}`;
+  const badgeLabel = u?.hero_badge_label?.trim()
+    ? esc(u.hero_badge_label.trim())
+    : `${esc(view.areaName)}の${projectType === 'saas' ? 'SaaS・Webサービス' : '専門サービス'}`;
+
+  const lineBtnLabel = u?.line_cta_label?.trim() || 'LINEで相談する';
 
   const heroCta = company.hasPhone
-    ? `<a href="${esc(company.phoneHref || '#')}" class="lp-btn lp-btn--primary lp-hero__cta">電話で今すぐ相談する</a>`
-    : `<a href="${esc(view.ctaUrl)}" class="lp-btn lp-btn--primary lp-hero__cta">無料で相談してみる</a>`;
+    ? `<a href="${esc(company.phoneHref || '#')}" class="lp-btn lp-btn--primary lp-hero__cta">${esc(
+        u?.hero_cta_primary_phone?.trim() || '電話で今すぐ相談する',
+      )}</a>`
+    : `<a href="${esc(view.ctaUrl)}" class="lp-btn lp-btn--primary lp-hero__cta">${esc(
+        u?.hero_cta_primary_web?.trim() || '無料で相談してみる',
+      )}</a>`;
 
   const heroLine = company.hasLine
-    ? `<div class="lp-hero__line-wrap"><a href="${esc(company.lineUrl || '#')}" class="lp-btn lp-btn--line lp-hero__cta">LINEで相談する</a></div>`
+    ? `<div class="lp-hero__line-wrap"><a href="${esc(
+        company.lineUrl || '#',
+      )}" class="lp-btn lp-btn--line lp-hero__cta">${esc(lineBtnLabel)}</a></div>`
     : '';
 
   const ctaSecondBtn = company.hasPhone
-    ? `<a href="${esc(company.phoneHref || '#')}" class="lp-btn lp-btn--primary lp-cta-second__btn">電話で無料相談する</a>`
-    : `<a href="${esc(view.ctaUrl)}" class="lp-btn lp-btn--primary lp-cta-second__btn">無料相談の空き枠を確認する</a>`;
+    ? `<a href="${esc(company.phoneHref || '#')}" class="lp-btn lp-btn--primary lp-cta-second__btn">${esc(
+        u?.cta_second_primary_phone?.trim() || '電話で無料相談する',
+      )}</a>`
+    : `<a href="${esc(view.ctaUrl)}" class="lp-btn lp-btn--primary lp-cta-second__btn">${esc(
+        u?.cta_second_primary_web?.trim() || '無料相談の空き枠を確認する',
+      )}</a>`;
 
   const diagnosisCta = company.hasPhone
-    ? `<a href="${esc(company.phoneHref || '#')}" class="lp-btn lp-btn--primary">電話で無料診断を依頼する</a>`
-    : `<a href="${esc(view.ctaUrl)}" class="lp-btn lp-btn--primary">まずは無料で診断を依頼する</a>`;
+    ? `<a href="${esc(company.phoneHref || '#')}" class="lp-btn lp-btn--primary">${esc(
+        u?.diagnosis_cta_phone?.trim() || '電話で無料診断を依頼する',
+      )}</a>`
+    : `<a href="${esc(view.ctaUrl)}" class="lp-btn lp-btn--primary">${esc(
+        u?.diagnosis_cta_web?.trim() || 'まずは無料で診断を依頼する',
+      )}</a>`;
 
   const consultationLine = company.hasLine
-    ? `<a href="${esc(company.lineUrl || '#')}" class="lp-btn lp-btn--line lp-consultation__btn">LINEで相談する</a>`
+    ? `<a href="${esc(
+        company.lineUrl || '#',
+      )}" class="lp-btn lp-btn--line lp-consultation__btn">${esc(lineBtnLabel)}</a>`
     : '';
 
   const priceRows = view.priceRows
@@ -176,6 +254,7 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
 
   const selectedTemplate = (() => {
     if (input.template) return input.template;
+    if (input.generationRule) return 'cv';
     const seed =
       typeof input.templateSeed === 'number'
         ? input.templateSeed
@@ -272,21 +351,36 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
           <span class="lp-hero__meta-item">運営：${esc(view.serviceName)}</span>
         </div>
         <div class="lp-hero__cta-wrap">${heroCta}${heroLine}
-          <p class="lp-hero__cta-note">「まだ検討中…」という段階でもお気軽にご相談ください。</p>
+          <p class="lp-hero__cta-note">${esc(
+            u?.hero_cta_note?.trim() ||
+              '「まだ検討中…」という段階でもお気軽にご相談ください。',
+          )}</p>
         </div>
       </div>
       <div class="lp-hero__image">${heroVisual}</div>
     </div>
   </header>`;
 
+  const problemsBulletsDefault = [
+    'どこに依頼すべきか分からない',
+    '費用の相場が見えず不安',
+    '信頼できる業者を探している',
+  ] as const;
+  const problemsBullets: readonly string[] =
+    u?.problems_bullets?.length === 3
+      ? u.problems_bullets
+      : problemsBulletsDefault;
   const problemsSection = `<section class="lp-section lp-section--muted"${LP_REVEAL_ATTR} id="problems">
     <div class="lp-container">
-      <h2 class="lp-section__title">こんなお悩みはありませんか？</h2>
-      <p class="lp-section__lead">${esc(view.areaName)}でサービスをご検討中の方から、よくいただくお悩みです。</p>
+      <h2 class="lp-section__title">${esc(
+        u?.problems_title?.trim() || 'こんなお悩みはありませんか？',
+      )}</h2>
+      <p class="lp-section__lead">${esc(
+        u?.problems_lead?.trim() ||
+          `${view.areaName}でサービスをご検討中の方から、よくいただくお悩みです。`,
+      )}</p>
       <ul class="lp-list lp-list--problems">
-        <li class="lp-list__item">どこに依頼すべきか分からない</li>
-        <li class="lp-list__item">費用の相場が見えず不安</li>
-        <li class="lp-list__item">信頼できる業者を探している</li>
+        ${problemsBullets.map((t) => `<li class="lp-list__item">${esc(t)}</li>`).join('')}
       </ul>
     </div>
   </section>`;
@@ -365,32 +459,64 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
 
   const ctaSecondSection = `<section class="lp-section lp-cta-second"${LP_REVEAL_ATTR} id="cta-second">
     <div class="lp-container lp-cta-second__inner">
-      <h2 class="lp-cta-second__title">まずはお気軽にご相談ください</h2>
-      <p class="lp-cta-second__text">「まだ検討段階だけど話だけ聞きたい」という方も歓迎です。専門スタッフが丁寧にお答えします。</p>
+      <h2 class="lp-cta-second__title">${esc(
+        u?.cta_second_title?.trim() || 'まずはお気軽にご相談ください',
+      )}</h2>
+      <p class="lp-cta-second__text">${esc(
+        u?.cta_second_lead?.trim() ||
+          '「まだ検討段階だけど話だけ聞きたい」という方も歓迎です。専門スタッフが丁寧にお答えします。',
+      )}</p>
       ${ctaSecondBtn}
-      <p class="lp-cta-second__note">※強引な営業やしつこい勧誘は一切行いません。</p>
+      <p class="lp-cta-second__note">${esc(
+        u?.cta_second_note?.trim() ||
+          '※強引な営業やしつこい勧誘は一切行いません。',
+      )}</p>
     </div>
   </section>`;
 
+  const diagnosisItemsDefault = [
+    '気になっているが、誰に相談すべきか分からない',
+    '過去に見積もりを取ったが、そのままになっている',
+    'いつか対応しなければと思いつつ、後回しになっている',
+  ] as const;
+  const diagnosisCheckItems: readonly string[] =
+    u?.diagnosis_check_items?.length === 3
+      ? u.diagnosis_check_items
+      : diagnosisItemsDefault;
+  const diagnosisLeadRaw =
+    u?.diagnosis_lead?.trim() ||
+    '以下のチェック項目に3つ以上当てはまる場合は、早めのご相談をおすすめします。';
+  const diagnosisLeadHtml = diagnosisLeadRaw.includes('3つ以上')
+    ? diagnosisLeadRaw
+        .split('3つ以上')
+        .map((p) => esc(p))
+        .join('<span class="lp-text--emphasis">3つ以上</span>')
+    : esc(diagnosisLeadRaw);
   const diagnosisSection = `<section class="lp-section lp-section--muted"${LP_REVEAL_ATTR} id="diagnosis-consultation" data-mode="${esc(view.diagnosisMode)}">
     <div class="lp-container">
       <h2 class="lp-section__title">${esc(resolvedDiagnosisTitle)}</h2>
       <div class="lp-diagnosis" data-role="diagnosis">
-        <p class="lp-section__lead">以下のチェック項目に<span class="lp-text--emphasis">3つ以上</span>当てはまる場合は、早めのご相談をおすすめします。</p>
+        <p class="lp-section__lead">${diagnosisLeadHtml}</p>
         <ul class="lp-list lp-list--check lp-diagnosis__list">
-          <li class="lp-list__item">気になっているが、誰に相談すべきか分からない</li>
-          <li class="lp-list__item">過去に見積もりを取ったが、そのままになっている</li>
-          <li class="lp-list__item">いつか対応しなければと思いつつ、後回しになっている</li>
+          ${diagnosisCheckItems.map((t) => `<li class="lp-list__item">${esc(t)}</li>`).join('')}
         </ul>
         <div class="lp-diagnosis__cta">${diagnosisCta}</div>
       </div>
       <div class="lp-consultation" data-role="consultation">
-        <p class="lp-section__lead">具体的に決まっていなくても構いません。まずは無料でご相談ください。</p>
+        <p class="lp-section__lead">${esc(
+          u?.consultation_lead?.trim() ||
+            '具体的に決まっていなくても構いません。まずは無料でご相談ください。',
+        )}</p>
         <div class="lp-consultation__options">
-          <a href="${esc(view.ctaUrl)}" class="lp-btn lp-btn--primary lp-consultation__btn">フォームで無料相談する</a>
+          <a href="${esc(view.ctaUrl)}" class="lp-btn lp-btn--primary lp-consultation__btn">${esc(
+            u?.consultation_form_cta?.trim() || 'フォームで無料相談する',
+          )}</a>
           ${consultationLine}
         </div>
-        <p class="lp-consultation__note">※しつこい営業は一切行いません。${esc(view.areaName)}エリア限定で丁寧に対応いたします。</p>
+        <p class="lp-consultation__note">${esc(
+          u?.consultation_note?.trim() ||
+            `※しつこい営業は一切行いません。${view.areaName}エリア限定で丁寧に対応いたします。`,
+        )}</p>
       </div>
     </div>
   </section>`;
@@ -407,6 +533,28 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
       </div>
     </div>
   </footer>`;
+
+  const socialProofHtml = [blockTrustHtml, blockStoryHtml]
+    .filter((s) => typeof s === 'string' && s.trim().length > 0)
+    .join('\n');
+
+  const sectionRegistry: Partial<Record<RecommendedSectionRole, string>> = {
+    hero: heroSection,
+    problems: problemsSection,
+    solution: solutionSection,
+    services: servicesSection,
+    price: priceSection,
+    trust: trustSection,
+    social_proof: socialProofHtml,
+    flow: flowSection,
+    faq: faqSection,
+    cta_mid: ctaSecondSection,
+    diagnosis: diagnosisSection,
+    consultation: diagnosisSection,
+    related: relatedLinksHtml,
+    footer: footerSection,
+    custom: '',
+  };
 
   const sectionsByTemplate: Record<typeof selectedTemplate, string[]> = {
     cv: [
@@ -431,8 +579,9 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
       blockLocalHtml,
       blockStrengthHtml,
       inlineCta(
-        '信頼できる依頼先をお探しですか？',
-        `${view.areaName}でのご相談は、まずは無料でOKです。状況に合わせてご案内します。`,
+        u?.trust_inline_title?.trim() || '信頼できる依頼先をお探しですか？',
+        u?.trust_inline_lead?.trim() ||
+          `${view.areaName}でのご相談は、まずは無料でOKです。状況に合わせてご案内します。`,
       ),
       priceSection,
       servicesSection,
@@ -452,8 +601,8 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
       blockStrengthHtml,
       blockStoryHtml,
       inlineCta(
-        sectionCopy.benefitInlineCta.title,
-        sectionCopy.benefitInlineCta.lead,
+        u?.benefit_inline_title?.trim() || sectionCopy.benefitInlineCta.title,
+        u?.benefit_inline_lead?.trim() || sectionCopy.benefitInlineCta.lead,
       ),
       servicesSection,
       priceSection,
@@ -469,9 +618,16 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
     ],
   };
 
-  const bodyInner = sectionsByTemplate[selectedTemplate]
-    .filter((s) => typeof s === 'string' && s.trim().length > 0)
-    .join('\n');
+  const bodyInner =
+    input.generationRule && input.generationRule.section_order.length > 0
+      ? orderBodyByGenerationRule(
+          input.generationRule.section_order,
+          sectionRegistry,
+          allBlocksHtml,
+        )
+      : sectionsByTemplate[selectedTemplate]
+          .filter((s) => typeof s === 'string' && s.trim().length > 0)
+          .join('\n');
 
   return { jsonLdScript, bodyInner };
 }

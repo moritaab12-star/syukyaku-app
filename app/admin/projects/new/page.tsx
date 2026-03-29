@@ -124,10 +124,19 @@ function NewProjectPageContent() {
   const [cloneConsumed, setCloneConsumed] = useState(false);
   const [postSavePublishFocus, setPostSavePublishFocus] =
     useState<PublishTestFocusProject | null>(null);
+  const [fvCatchBusy, setFvCatchBusy] = useState(false);
 
   const effectiveLpGroupId = useMemo(
     () => cloneLpGroupId ?? lpGroupIdForSave,
     [cloneLpGroupId, lpGroupIdForSave],
+  );
+
+  const fvCatchProjectId = useMemo(
+    () =>
+      (isEditMode && editId.trim().length > 0
+        ? editId.trim()
+        : postSavePublishFocus?.projectId?.trim()) ?? '',
+    [isEditMode, editId, postSavePublishFocus?.projectId],
   );
 
   /** 再生成のたびに増やし、テンプレのバリエーションを変える */
@@ -476,6 +485,51 @@ function NewProjectPageContent() {
       editId,
       postSavePublishFocus?.projectId,
     ],
+  );
+
+  const handleGenerateFvCatch = useCallback(
+    async (force: boolean) => {
+      if (!fvCatchProjectId) {
+        showToast('error', '先にプロジェクトを保存し、project id を取得してください。');
+        return;
+      }
+      setFvCatchBusy(true);
+      try {
+        const res = await fetch('/api/generate-fv-catch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ projectId: fvCatchProjectId, force }),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          skipped?: boolean;
+          error?: string;
+          message?: string;
+        };
+        if (!res.ok) {
+          throw new Error(data.error || 'FVキャッチの生成に失敗しました');
+        }
+        if (data.skipped && !force) {
+          showToast(
+            'success',
+            data.message ??
+              '既にキャッチがあります。「FVキャッチ再生成」で上書きできます。',
+          );
+        } else {
+          showToast(
+            'success',
+            force ? 'FVキャッチを再生成して保存しました' : 'FVキャッチを生成して保存しました',
+          );
+        }
+      } catch (e) {
+        console.error(e);
+        showToast('error', 'FVキャッチの生成に失敗しました');
+      } finally {
+        setFvCatchBusy(false);
+      }
+    },
+    [fvCatchProjectId, showToast],
   );
 
   const handleCompanyInfoChange = (
@@ -947,6 +1001,35 @@ function NewProjectPageContent() {
                   project_id: {editId}
                 </p>
               )}
+              {fvCatchProjectId ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={fvCatchBusy}
+                    onClick={() => void handleGenerateFvCatch(false)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-200 hover:bg-sky-500/20 disabled:opacity-50"
+                  >
+                    {fvCatchBusy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    FVキャッチ生成
+                  </button>
+                  <button
+                    type="button"
+                    disabled={fvCatchBusy}
+                    onClick={() => void handleGenerateFvCatch(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    FVキャッチ再生成
+                  </button>
+                  <span className="text-[10px] text-slate-500">
+                    保存済み行のみ。量産時は保存後に GEMINI で自動生成も実行されます。
+                  </span>
+                </div>
+              ) : null}
             </div>
             <div className="flex flex-col items-end gap-2">
               {isEditMode && (

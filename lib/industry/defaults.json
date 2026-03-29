@@ -1,0 +1,154 @@
+{
+  "masters": [
+    {
+      "id": "general",
+      "name": "一般・未分類",
+      "reference_queries": [
+        "{service} {area} 無料相談 LP",
+        "{service} お問い合わせ ランディング",
+        "{industryKey} 地域 サービス 公式"
+      ],
+      "important_elements": ["安心・実績", "費用の透明性", "相談しやすさ"],
+      "tone": "誠実・安心重視",
+      "cta_type": "電話・フォーム併用",
+      "recommended_structure": [
+        "hero",
+        "problems",
+        "solution",
+        "services",
+        "trust",
+        "price",
+        "flow",
+        "faq",
+        "cta_mid",
+        "diagnosis",
+        "consultation",
+        "footer"
+      ]
+    },
+    {
+      "id": "garden",
+      "name": "植木・造園・緑地管理",
+      "reference_queries": [
+        "{area} 剪定 造園 お問い合わせ",
+        "{service} {area} 見積もり",
+        "外構 エクステリア {area} LP"
+      ],
+      "important_elements": ["季節作業のタイミング", "伐採・許可の説明", "After 事例"],
+      "tone": "丁寧・現場感",
+      "cta_type": "電話・LINE・フォーム",
+      "recommended_structure": [
+        "hero",
+        "problems",
+        "solution",
+        "services",
+        "trust",
+        "flow",
+        "price",
+        "faq",
+        "cta_mid",
+        "consultation",
+        "footer"
+      ]
+    },
+    {
+      "id": "roof",
+      "name": "屋根・防水",
+      "reference_queries": [
+        "{area} 屋根工事 雨漏り 相談",
+        "{service} 葺き替え 見積もり",
+        "屋根 修理 {area} 無料診断"
+      ],
+      "important_elements": ["保証・点検", "工法の選択理由", "緊急性の安全配慮"],
+      "tone": "信頼・技術説明",
+      "cta_type": "電話・診断申込",
+      "recommended_structure": [
+        "hero",
+        "problems",
+        "trust",
+        "solution",
+        "services",
+        "price",
+        "flow",
+        "faq",
+        "cta_mid",
+        "diagnosis",
+        "footer"
+      ]
+    },
+    {
+      "id": "exterior",
+      "name": "外壁・塗装",
+      "reference_queries": [
+        "{area} 外壁塗装 相談",
+        "{service} {area} 工事会社",
+        "塗装 足場 見積もり {area}"
+      ],
+      "important_elements": ["塗料・年数", "色・保証", "工事期間"],
+      "tone": "比較検討に寄り添う",
+      "cta_type": "フォーム・電話",
+      "recommended_structure": [
+        "hero",
+        "problems",
+        "solution",
+        "trust",
+        "services",
+        "price",
+        "flow",
+        "faq",
+        "cta_mid",
+        "consultation",
+        "footer"
+      ]
+    },
+    {
+      "id": "reform",
+      "name": "リフォーム・内装",
+      "reference_queries": [
+        "{area} リフォーム 無料相談",
+        "{service} 設計 見積もり",
+        "水回り 改装 {area}"
+      ],
+      "important_elements": ["ライフスタイルヒアリング", "概算と工事範囲", "事例写真"],
+      "tone": "伴走・わかりやすさ",
+      "cta_type": "来店・フォーム・電話",
+      "recommended_structure": [
+        "hero",
+        "problems",
+        "solution",
+        "services",
+        "social_proof",
+        "price",
+        "flow",
+        "faq",
+        "cta_mid",
+        "consultation",
+        "footer"
+      ]
+    },
+    {
+      "id": "real_estate",
+      "name": "不動産",
+      "reference_queries": [
+        "{area} 不動産 査定 相談",
+        "{service} {area} 仲介",
+        "物件 購入 売却 {area}"
+      ],
+      "important_elements": ["エリア知識", "条件整理", "費用内訳"],
+      "tone": "中立・プロフェッショナル",
+      "cta_type": "査定・内見予約・フォーム",
+      "recommended_structure": [
+        "hero",
+        "problems",
+        "solution",
+        "services",
+        "trust",
+        "flow",
+        "faq",
+        "cta_mid",
+        "consultation",
+        "footer"
+      ]
+    }
+  ]
+}
