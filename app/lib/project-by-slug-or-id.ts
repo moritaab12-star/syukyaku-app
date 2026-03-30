@@ -74,3 +74,82 @@ export async function fetchProjectBySlugOrId(
 
   return { data: null, error: null };
 }
+
+/** 公開 `/p/[slug]` 用（`lp_design` 列が無い本番 DB でもフォールバック取得する） */
+export const PROJECTS_SELECT_PUBLIC_WITHOUT_LP_DESIGN =
+  'id, slug, company_name, project_type, raw_answers, company_info, area, service, industry_key, target_area, areas, keyword, intent, publish_status, lp_group_id, variation_seed, hero_image_url, fv_catch_headline, fv_catch_subheadline, lp_ui_copy, mode';
+
+export const PROJECTS_SELECT_PUBLIC_WITH_LP_DESIGN =
+  `${PROJECTS_SELECT_PUBLIC_WITHOUT_LP_DESIGN}, lp_design`;
+
+/**
+ * `select` に lp_design を足したが、マイグレーション未適用の DB だと PostgREST が失敗する。
+ * そのときだけ lp_design なしで再取得する。
+ */
+export function isMissingLpDesignColumnError(
+  err: { message?: string; code?: string } | null | undefined,
+): boolean {
+  if (!err?.message) return false;
+  const m = err.message.toLowerCase();
+  if (!m.includes('lp_design')) return false;
+  return (
+    m.includes('does not exist') ||
+    m.includes('could not find') ||
+    m.includes('schema cache') ||
+    m.includes('undefined column') ||
+    String(err.code) === '42703'
+  );
+}
+
+export async function fetchProjectBySlugOrIdForPublicPage(
+  client: SupabaseClient,
+  slugOrIdParam: string,
+) {
+  const primary = await fetchProjectBySlugOrId(
+    client,
+    slugOrIdParam,
+    PROJECTS_SELECT_PUBLIC_WITH_LP_DESIGN,
+  );
+  if (
+    primary.error &&
+    isMissingLpDesignColumnError(primary.error) &&
+    !primary.data
+  ) {
+    return fetchProjectBySlugOrId(
+      client,
+      slugOrIdParam,
+      PROJECTS_SELECT_PUBLIC_WITHOUT_LP_DESIGN,
+    );
+  }
+  return primary;
+}
+
+/** エージェント evaluate 用（`lp_design` 列なし DB でも取得可能） */
+export const PROJECTS_SELECT_EVALUATE_WITHOUT_LP_DESIGN =
+  'id, slug, company_name, project_type, raw_answers, company_info, area, service, industry_key, target_area, areas, keyword, intent, lp_group_id, variation_seed, hero_image_url, fv_catch_headline, fv_catch_subheadline, lp_ui_copy, mode';
+
+export const PROJECTS_SELECT_EVALUATE_WITH_LP_DESIGN =
+  `${PROJECTS_SELECT_EVALUATE_WITHOUT_LP_DESIGN}, lp_design`;
+
+export async function fetchProjectRowByIdWithOptionalLpDesign(
+  client: SupabaseClient,
+  projectId: string,
+) {
+  const primary = await client
+    .from('projects')
+    .select(PROJECTS_SELECT_EVALUATE_WITH_LP_DESIGN)
+    .eq('id', projectId)
+    .maybeSingle();
+  if (
+    primary.error &&
+    isMissingLpDesignColumnError(primary.error) &&
+    !primary.data
+  ) {
+    return client
+      .from('projects')
+      .select(PROJECTS_SELECT_EVALUATE_WITHOUT_LP_DESIGN)
+      .eq('id', projectId)
+      .maybeSingle();
+  }
+  return primary;
+}

@@ -9,6 +9,7 @@ import { resolveLpDesignLayer } from '@/app/lib/lp-design-layer/resolve';
 import { parseLpUiCopy } from '@/app/lib/lp-ui-copy';
 import { runLpHtmlGuards } from '@/lib/guard/lp-html-static-check';
 import { stripHtmlToPlainText } from '@/lib/guard/html-text';
+import { fetchProjectRowByIdWithOptionalLpDesign } from '@/app/lib/project-by-slug-or-id';
 
 function normalizeKeyword(s: string): string {
   return s.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
@@ -44,13 +45,8 @@ export async function evaluateLp(
 ): Promise<EvaluateResult> {
   const reasons: string[] = [];
 
-  const { data: row, error: fetchErr } = await supabase
-    .from('projects')
-    .select(
-      'id, slug, company_name, project_type, raw_answers, company_info, area, service, industry_key, target_area, areas, keyword, intent, lp_group_id, variation_seed, hero_image_url, fv_catch_headline, fv_catch_subheadline, lp_ui_copy, mode, lp_design',
-    )
-    .eq('id', projectId)
-    .maybeSingle();
+  const { data: row, error: fetchErr } =
+    await fetchProjectRowByIdWithOptionalLpDesign(supabase, projectId);
 
   if (fetchErr || !row) {
     console.error('[agent] evaluateLp fetch', fetchErr?.message);
