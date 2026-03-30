@@ -3,14 +3,16 @@
  */
 
 import type { GeminiFvCatchInput } from '@/app/lib/gemini-fv-catch';
+import {
+  lpAppealAngleMeaningJa,
+  resolveLpAppealAngle,
+} from '@/app/lib/lp-copy-appeal-angle';
 
 const MODEL =
   process.env.GEMINI_LP_UI_COPY_MODEL?.trim() ||
   process.env.GEMINI_FV_CATCH_MODEL?.trim() ||
   process.env.GEMINI_LP_MODEL?.trim() ||
   'gemini-1.5-flash';
-
-const ANGLE_FROM_SEED = ['A', 'B', 'C', 'D', 'E'] as const;
 
 export type LpUiCopyPackInput = GeminiFvCatchInput;
 
@@ -28,8 +30,13 @@ function buildPackPrompt(input: LpUiCopyPackInput): string {
   const seed = Number.isFinite(input.variationSeed)
     ? Math.trunc(input.variationSeed)
     : 0;
-  const angle =
-    ANGLE_FROM_SEED[((seed % 5) + 5) % 5] ?? 'A';
+  const instr = (input.editorInstruction ?? '').trim();
+  const appeal = resolveLpAppealAngle(instr, seed);
+  const angle = appeal.code;
+  const angleSourceNote =
+    appeal.source === 'instruction'
+      ? '（編集者指示のキーワードから決定）'
+      : '（指示に該当なしのため variation_seed から決定）';
 
   const area = input.area.trim() || '（未設定）';
   const service = input.service.trim() || '（未設定）';
@@ -39,22 +46,34 @@ function buildPackPrompt(input: LpUiCopyPackInput): string {
   const qa = input.qaContext.trim() || '（未入力）';
   const existing = input.existingHeadlinesBlock.trim() || '（なし）';
 
+  const editorBlock =
+    instr.length > 0
+      ? `
+【編集者・エージェント指示（解釈範囲は次のみ）】
+${instr}
+
+- **業種・メニュー・商品/サービスの事実**は「対応サービス原文」と「アンケート50問」に書かれている内容だけを根拠にする。指示に別の業種・商材が書かれていても **無視** する。
+- 指示は **訴求モデル**（価格・信頼・共感・緊急性・地域密着など）と **デザイン意図**（落ち着き/力強さ/カジュアルさ・情報の優先順位の言語化）の解釈にだけ使う。
+`
+      : '';
+
   return `あなたは日本の地域密着ランディングページのコピーライターです。
 【このプロジェクト専用】に、以下のキーをすべて満たす **1つのJSONオブジェクト** を返してください。
 
-【メタ情報】
-- 地域（多用しない。各フィールドで重複させない）: ${area}
-- サービス・業種の要約: ${service}
-- 業種キー: ${ik}
-- 業種の文脈・トーン説明: ${idesc}
-- 会社・屋号（短く。未入力なら無理に入れない）: ${cn || '（なし）'}
+【対応サービス・業種の原文（フォームの target_services / DB の service。業種・何屋か・メニュー判断の最優先。カンマ区切りも含めてそのまま読む）】
+${service}
 
+【補助メタ（サービス原文と矛盾させない）】
+- 地域（多用しない。各フィールドで重複させない）: ${area}
+- 業種キー（補助）: ${ik}
+- 業種トーン説明（補助。原文と食い違う場合は原文優先）: ${idesc}
+- 会社・屋号（短く。未入力なら無理に入れない）: ${cn || '（なし）'}
+${editorBlock}
 【訴求角度（内部のみ。出力に書かない）】
 - variation_seed: ${seed}
-- 割当角度コード「${angle}」のみを全体のトーンに反映:
-  (A)手順 (B)不安先回り (C)人柄・対話 (D)地域・現場（地名連発禁止） (E)誠実・見積/追加費用
+- 採用角度「${angle}」${angleSourceNote} を全体のトーンに反映: ${lpAppealAngleMeaningJa(angle)}
 
-【アンケート要約（事実優先。ない事実は書かない）】
+【アンケート50問（事実・アンカー。ここにない具体的事実は断定しない）】
 ${qa}
 
 【同一グループの既存 headline（似せない）】
@@ -65,7 +84,7 @@ ${existing}
 2. headline: 全角18〜28文字目安。subheadline: 2〜3文・ですます。
 3. CTAは押し売り感が強すぎない。電話版・Web版で文言を変える。
 4. problems_bullets / diagnosis_check_items は **文字列ちょうど3要素の配列**。
-5. 地域名・サービス名は全体を通じ **それぞれ2回以内** を目安。
+5. 地域名は全体を通じ **2回以内** を目安。サービス表現は原文の語を活かしつつ自然な回数に抑える。
 6. 未入力の数値実績・保証の断定はしない。
 
 【必須キー一覧（すべて文字列または配列で出力）】

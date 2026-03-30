@@ -180,6 +180,17 @@ export async function executeLpGeneration(
 
     const intent = detectSearchIntent(keyword);
 
+    const designInstruction = [
+      `[エージェント量産] テーマ:${theme.title}`,
+      `キーワード:${keyword}`,
+      `地域:${parsedNorm.area.trim() || ''}`,
+      `サービス:${parsedNorm.service}`,
+      parsedNorm.target?.trim() ? `ターゲット:${parsedNorm.target.trim()}` : '',
+      parsedNorm.appeal?.trim() ? `訴求:${parsedNorm.appeal.trim()}` : '',
+    ]
+      .filter((s) => s.length > 0)
+      .join('\n');
+
     const row: Record<string, unknown> = {
       company_name: template.company_name ?? null,
       project_type: template.project_type ?? 'local',
@@ -219,17 +230,6 @@ export async function executeLpGeneration(
       console.error('[agent] executeLpGeneration insert', insErr?.message);
       continue;
     }
-
-    const designInstruction = [
-      `[エージェント量産] テーマ:${theme.title}`,
-      `キーワード:${keyword}`,
-      `地域:${parsedNorm.area.trim() || ''}`,
-      `サービス:${parsedNorm.service}`,
-      parsedNorm.target?.trim() ? `ターゲット:${parsedNorm.target.trim()}` : '',
-      parsedNorm.appeal?.trim() ? `訴求:${parsedNorm.appeal.trim()}` : '',
-    ]
-      .filter((s) => s.length > 0)
-      .join('\n');
 
     try {
       const lpDesign = await generateLpDesignRowForProject({

@@ -8,7 +8,7 @@ import {
   lpIndustryToneDescriptionForPrompt,
   resolveLpIndustryTone,
 } from '@/app/lib/lp-industry';
-import { buildOtherAnswersContextSnippet } from '@/app/lib/raw-answer-suggest';
+import { buildLpPackSurveyContext } from '@/app/lib/raw-answer-suggest';
 import { generateLpUiCopyPackWithGemini } from '@/app/lib/gemini-lp-ui-copy-pack';
 import { lpUiCopyHeadlineFromRow, parseLpUiCopy } from '@/app/lib/lp-ui-copy';
 
@@ -23,6 +23,7 @@ type ProjectRow = {
   variation_seed: number | null;
   fv_catch_headline: string | null;
   lp_ui_copy: unknown;
+  lp_editor_instruction: string | null;
 };
 
 function asHeadlinesList(lines: string[]): string {
@@ -42,7 +43,7 @@ export async function runFvCatchForProject(
   const { data: row, error: fetchErr } = await supabase
     .from('projects')
     .select(
-      'id, area, service, industry_key, company_name, raw_answers, lp_group_id, variation_seed, fv_catch_headline, lp_ui_copy',
+      'id, area, service, industry_key, company_name, raw_answers, lp_group_id, variation_seed, fv_catch_headline, lp_ui_copy, lp_editor_instruction',
     )
     .eq('id', projectId)
     .maybeSingle();
@@ -81,7 +82,11 @@ export async function runFvCatchForProject(
   }
 
   const rawRecord = rawAnswersJsonToRecord(p.raw_answers);
-  const qaContext = buildOtherAnswersContextSnippet('', rawRecord);
+  const qaContext = buildLpPackSurveyContext(rawRecord);
+  const editorInstruction =
+    typeof p.lp_editor_instruction === 'string'
+      ? p.lp_editor_instruction.trim()
+      : '';
 
   const area = typeof p.area === 'string' ? p.area : '';
   const service = typeof p.service === 'string' ? p.service : '';
@@ -106,6 +111,7 @@ export async function runFvCatchForProject(
     qaContext,
     existingHeadlinesBlock: asHeadlinesList(existingHeadlines),
     variationSeed: vs,
+    editorInstruction: editorInstruction || undefined,
   });
 
   if (!generated) {

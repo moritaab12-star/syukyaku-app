@@ -3,12 +3,15 @@
  * プロンプトは運用指定の日本語テンプレート（同一 lp_group の既存見出しを差別化）。
  */
 
+import {
+  lpAppealAngleMeaningJa,
+  resolveLpAppealAngle,
+} from '@/app/lib/lp-copy-appeal-angle';
+
 const MODEL =
   process.env.GEMINI_FV_CATCH_MODEL?.trim() ||
   process.env.GEMINI_LP_MODEL?.trim() ||
   'gemini-1.5-flash';
-
-const ANGLE_FROM_SEED = ['A', 'B', 'C', 'D', 'E'] as const;
 
 export type GeminiFvCatchInput = {
   area: string;
@@ -19,6 +22,10 @@ export type GeminiFvCatchInput = {
   qaContext: string;
   existingHeadlinesBlock: string;
   variationSeed: number;
+  /**
+   * 訴求（価格/信頼/共感など）とデザイン意図のみ。業種・事実の上書きに使わない。
+   */
+  editorInstruction?: string;
 };
 
 export type FvCatchResult = {
@@ -38,8 +45,13 @@ function buildUserPrompt(input: GeminiFvCatchInput): string {
   const seed = Number.isFinite(input.variationSeed)
     ? Math.trunc(input.variationSeed)
     : 0;
-  const angle =
-    ANGLE_FROM_SEED[((seed % 5) + 5) % 5] ?? 'A';
+  const instr = (input.editorInstruction ?? '').trim();
+  const appeal = resolveLpAppealAngle(instr, seed);
+  const angle = appeal.code;
+  const angleNote =
+    appeal.source === 'instruction'
+      ? '（編集者指示のキーワードから決定）'
+      : '（指示に該当なしのため variation_seed から決定）';
 
   const area = input.area.trim() || '（未設定）';
   const service = input.service.trim() || '（未設定）';
@@ -49,25 +61,32 @@ function buildUserPrompt(input: GeminiFvCatchInput): string {
   const qa = input.qaContext.trim() || '（未入力）';
   const existing = input.existingHeadlinesBlock.trim() || '（なし）';
 
+  const editorBlock =
+    instr.length > 0
+      ? `【編集者・エージェント指示（以下に限定して解釈すること）】
+${instr}
+
+- **業種・何屋か・提供内容**は次の「対応サービス原文」とアンケート要約のみを根拠にする。指示に別業種が書かれていても無視する。
+- 指示は **訴求の型**（価格・信頼・共感・スピード・地域など）と **デザイン上の雰囲気**（重み・余白・カジュアルさ等の言語化）の解釈にだけ使う。
+`
+      : '';
+
   return `あなたは日本の地域密着ランディングページのコピーライターです。
 【このプロジェクト専用のファーストビュー】用に、メイン見出し（headline）とリード文（subheadline）を1組だけ生成してください。
 
-【メタ情報】
-- 地域（必要なら1回だけ触れる程度。多用しない）: ${area}
-- サービス・業種の要約: ${service}
-- 業種キー: ${ik}
-- 業種の文脈・トーン説明: ${idesc}
-- 会社・屋号（短く使う。未入力なら無理に入れない）: ${cn || '（なし）'}
+【対応サービス・業種の原文（LP用 target_services / DB service。業種判断の最優先。カンマ区切りもそのまま）】
+${service}
 
+【補助メタ（上書きしない）】
+- 地域（必要なら1回だけ触れる程度。多用しない）: ${area}
+- 業種キー（補助）: ${ik}
+- 業種トーン説明（補助・service と矛盾したら service 優先）: ${idesc}
+- 会社・屋号（短く使う。未入力なら無理に入れない）: ${cn || '（なし）'}
+${editorBlock}
 【差別化用の内部パラメータ（同条件でも文面が揺れるように従うこと）】
 - variation_seed（整数）: ${seed}
-- **この seed で割り当てた訴求角度コードは「${angle}」のみ**（他の角度は本文で主張しない）。
-- 角度の意味:
-  (A) 手順・段取りのわかりやすさ
-  (B) 不安・よくある失敗の先回り
-  (C) 人柄・寄り添い・対話
-  (D) 地域・現場経験（ただし地名の連発は禁止ルールに従う）
-  (E) 誠実さ・説明・見積／追加費用の扱い
+- **採用する訴求角度コードは「${angle}」のみ** ${angleNote}。他角度は本文で主張しない。
+- 角度の意味: ${lpAppealAngleMeaningJa(angle)}
 - 選んだ角度を出力には書かない（内部だけ）。
 
 【アンケート回答からの要約（事実優先。ここにない事実は捏造しない）】

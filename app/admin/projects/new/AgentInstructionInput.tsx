@@ -213,7 +213,8 @@ export function AgentInstructionInput({
           </h2>
           <p className="text-xs text-slate-400 md:text-sm">
             1 行の指示からテーマを計画し、テンプレを複製して複数 projects 行を作成します（保存済みの
-            project をテンプレに使います）。
+            project をテンプレに使います）。下書き保存時、この指示もプロジェクトに保存され、LP
+            全文生成では訴求・デザイン意図の解釈に使われます（業種の事実は「対応サービス」と50問が優先されます）。
           </p>
         </div>
       </div>

@@ -162,6 +162,31 @@ export function buildOtherAnswersContextSnippet(
   return parts.join('\n\n');
 }
 
+/** LP 全文パック用: q1〜q50 を番号順に（空回答は省略）。設問ラベル付き。 */
+const LP_PACK_QA_MAX_PER_ANSWER = 380;
+const LP_PACK_QA_MAX_TOTAL = 14_000;
+
+export function buildLpPackSurveyContext(
+  otherAnswers?: Record<string, string>,
+): string {
+  if (!otherAnswers) return '';
+  const lines: string[] = [];
+  let total = 0;
+  for (let i = 1; i <= 50; i++) {
+    const id = `q${i}`;
+    const raw = otherAnswers[id] ?? '';
+    const trimmed = trimAnswerLine(String(raw ?? ''), LP_PACK_QA_MAX_PER_ANSWER);
+    if (!trimmed) continue;
+    const label = Q50_LABELS[id] ?? id;
+    const line = `・${label}: ${trimmed}`;
+    if (total + line.length + 1 > LP_PACK_QA_MAX_TOTAL) break;
+    lines.push(line);
+    total += line.length + 1;
+  }
+  if (lines.length === 0) return '';
+  return `【アンケート50問（q1〜q50・入力済みのみ）】\n${lines.join('\n')}`;
+}
+
 /** @deprecated 推定ロジックは `resolveLpIndustryTone` に集約済み */
 export function inferServiceFamily(service: string): ServiceFamily {
   return lpToneToServiceFamily(resolveLpIndustryTone(null, service));

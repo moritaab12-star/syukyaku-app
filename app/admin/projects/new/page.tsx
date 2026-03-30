@@ -200,6 +200,7 @@ function NewProjectPageContent() {
           service?: string | null;
           industry_key?: string | null;
           areas?: string[] | null;
+          lp_editor_instruction?: string | null;
         };
         if (p.project_type === 'saas') {
           setEditLoadState('error');
@@ -222,6 +223,11 @@ function NewProjectPageContent() {
         setTargetServices(typeof p.service === 'string' ? p.service : '');
         setIndustryKey(
           typeof p.industry_key === 'string' ? p.industry_key : '',
+        );
+        setAgentInstruction(
+          typeof p.lp_editor_instruction === 'string'
+            ? p.lp_editor_instruction
+            : '',
         );
 
         const info = (p.company_info ?? {}) as Partial<CompanyInfoForm>;
@@ -317,6 +323,7 @@ function NewProjectPageContent() {
           areas?: string[] | null;
           variation_seed?: number | null;
           lp_group_id?: string | null;
+          lp_editor_instruction?: string | null;
         };
         if (p.project_type === 'saas') {
           setCloneLoadState('error');
@@ -336,6 +343,11 @@ function NewProjectPageContent() {
         setTargetServices(typeof p.service === 'string' ? p.service : '');
         setIndustryKey(
           typeof p.industry_key === 'string' ? p.industry_key : '',
+        );
+        setAgentInstruction(
+          typeof p.lp_editor_instruction === 'string'
+            ? p.lp_editor_instruction
+            : '',
         );
 
         const info = (p.company_info ?? {}) as Partial<CompanyInfoForm>;
@@ -491,6 +503,7 @@ function NewProjectPageContent() {
         industry_key: industryKey.trim() || null,
         raw_answers: parts.rawAnswersPayload,
         company_info: parts.companyInfoPayload,
+        lp_editor_instruction: agentInstruction.trim() || null,
         ...(effectiveLpGroupId ? { lp_group_id: effectiveLpGroupId } : {}),
         variation_seed: variationSeedForSave,
       };
@@ -536,6 +549,7 @@ function NewProjectPageContent() {
       effectiveLpGroupId,
       variationSeedForSave,
       showToast,
+      agentInstruction,
     ],
   );
 
@@ -966,6 +980,7 @@ function NewProjectPageContent() {
       industry_key: industryKey.trim() || null,
       raw_answers: rawAnswersPayload,
       company_info: companyInfoPayload,
+      lp_editor_instruction: agentInstruction.trim() || null,
       ...(effectiveLpGroupId ? { lp_group_id: effectiveLpGroupId } : {}),
       variation_seed: variationSeedForSave,
     };
@@ -985,6 +1000,7 @@ function NewProjectPageContent() {
             industry_key: industryKey.trim() || null,
             raw_answers: rawAnswersPayload,
             company_info: companyInfoPayload,
+            lp_editor_instruction: agentInstruction.trim() || null,
           }),
         });
         const data = await res.json().catch(() => ({}));

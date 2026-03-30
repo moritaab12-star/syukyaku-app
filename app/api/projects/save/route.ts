@@ -41,9 +41,17 @@ type SaveProjectPayload = {
   lp_group_id?: string | null;
   /** 行ごとの edition（決定的バリエーション seed）。未送時は 0 */
   variation_seed?: number | null;
+  /** LP生成: 訴求・デザイン意図（service/raw_answers の業種ファクトを置き換えない） */
+  lp_editor_instruction?: string | null;
 };
 
 function normalizeIndustryKey(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  return t.length > 0 ? t : null;
+}
+
+function normalizeLpEditorInstruction(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   const t = v.trim();
   return t.length > 0 ? t : null;
@@ -85,6 +93,9 @@ export async function POST(request: Request) {
     const industryKey = normalizeIndustryKey(body.industry_key);
     const rawAnswers = body.raw_answers ?? [];
     const companyInfo = body.company_info ?? {};
+    const lpEditorInstruction = normalizeLpEditorInstruction(
+      body.lp_editor_instruction,
+    );
 
     const baseSlug =
       typeof body.slug === 'string' && body.slug.trim().length > 0
@@ -151,6 +162,7 @@ export async function POST(request: Request) {
         published_at: null as string | null,
         lp_group_id: lpGroupId,
         variation_seed: variationSeed,
+        lp_editor_instruction: lpEditorInstruction,
       };
 
       const first = splits[0];
@@ -266,6 +278,7 @@ export async function POST(request: Request) {
         industry_key: industryKey,
         keyword,
         intent,
+        lp_editor_instruction: lpEditorInstruction,
       };
       const { error, data } = await supabase
         .from('projects')
@@ -314,6 +327,7 @@ export async function POST(request: Request) {
       published_at: null,
       lp_group_id: lpGroupId,
       variation_seed: variationSeed,
+      lp_editor_instruction: lpEditorInstruction,
     };
 
     const { error, data } = await supabase

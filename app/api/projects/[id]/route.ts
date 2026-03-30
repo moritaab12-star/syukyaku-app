@@ -18,6 +18,7 @@ type PatchBody = {
   industry_key?: string | null;
   raw_answers?: unknown;
   company_info?: unknown;
+  lp_editor_instruction?: string | null;
 };
 
 function normalizeIndustryKeyPatch(v: unknown): string | null | undefined {
@@ -58,7 +59,7 @@ export async function GET(
     const { data, error } = await supabase
       .from('projects')
       .select(
-        'id, slug, project_type, company_name, status, raw_answers, company_info, area, service, industry_key, target_area, areas, publish_status, wp_page_id, wp_url, lp_group_id, variation_seed, fv_catch_headline, fv_catch_subheadline, lp_ui_copy',
+        'id, slug, project_type, company_name, status, raw_answers, company_info, area, service, industry_key, target_area, areas, publish_status, wp_page_id, wp_url, lp_group_id, variation_seed, fv_catch_headline, fv_catch_subheadline, lp_ui_copy, lp_editor_instruction',
       )
       .eq('id', id)
       .maybeSingle();
@@ -126,6 +127,13 @@ export async function PATCH(
     const service = serviceNorm.length > 0 ? serviceNorm : null;
 
     const industryKeyPatch = normalizeIndustryKeyPatch(body.industry_key);
+    const editorInstrPatch =
+      body.lp_editor_instruction === undefined
+        ? undefined
+        : typeof body.lp_editor_instruction === 'string' &&
+            body.lp_editor_instruction.trim().length > 0
+          ? body.lp_editor_instruction.trim()
+          : null;
 
     const supabase = createSupabaseAdminClient();
 
@@ -167,6 +175,9 @@ export async function PATCH(
     };
     if (industryKeyPatch !== undefined) {
       updateRow.industry_key = industryKeyPatch;
+    }
+    if (editorInstrPatch !== undefined) {
+      updateRow.lp_editor_instruction = editorInstrPatch;
     }
 
     const { data: updated, error: updateErr } = await supabase
