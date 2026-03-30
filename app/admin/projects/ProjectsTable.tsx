@@ -22,7 +22,9 @@ type LpLinkItem = {
   area: string | null;
   service: string | null;
   publish_status: string | null;
-  path: string;
+  /** `/p/{slug}` 。slug 未設定時は null */
+  path: string | null;
+  slug_missing?: boolean;
 };
 
 export type Project = {
@@ -217,7 +219,14 @@ export function ProjectsTable({
   const copyLpUrls = useCallback(async () => {
     if (typeof window === 'undefined' || lpLinksItems.length === 0) return;
     const origin = window.location.origin;
-    const text = lpLinksItems.map((i) => `${origin}${i.path}`).join('\n');
+    const lines = lpLinksItems
+      .filter((i) => typeof i.path === 'string' && i.path.length > 0)
+      .map((i) => `${origin}${i.path}`);
+    if (lines.length === 0) {
+      setLpLinksError('slug が設定された LP の URL がありません');
+      return;
+    }
+    const text = lines.join('\n');
     try {
       await navigator.clipboard.writeText(text);
       setLpLinksCopied(true);
@@ -495,23 +504,36 @@ export function ProjectsTable({
                     </div>
                     <ul className="space-y-3">
                       {lpLinksItems.map((item) => {
+                        const path = item.path;
                         const absUrl =
-                          typeof window !== 'undefined'
-                            ? `${window.location.origin}${item.path}`
-                            : item.path;
+                          path && typeof window !== 'undefined'
+                            ? `${window.location.origin}${path}`
+                            : path
+                              ? path
+                              : null;
                         return (
                           <li
                             key={item.id}
                             className="rounded-xl border border-slate-800 bg-slate-900/80 p-3 text-xs text-slate-300"
                           >
-                            <a
-                              href={absUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="break-all font-mono text-[11px] text-sky-300 hover:text-sky-200"
-                            >
-                              {absUrl}
-                            </a>
+                            {absUrl ? (
+                              <a
+                                href={absUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="break-all font-mono text-[11px] text-sky-300 hover:text-sky-200"
+                              >
+                                {absUrl}
+                              </a>
+                            ) : (
+                              <p className="text-amber-200/90">
+                                slug が未設定のためプレビュー URL を出せません（id:{' '}
+                                <span className="font-mono text-slate-400">
+                                  {item.id}
+                                </span>
+                                ）
+                              </p>
+                            )}
                             <div className="mt-2 grid gap-0.5 text-[11px] text-slate-400">
                               <span>
                                 エリア: {item.area?.trim() || '—'}

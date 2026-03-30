@@ -16,9 +16,19 @@ type ProjectLpRow = {
   created_at: string | null;
 };
 
-/** プレビューは slug では id を使う（長い日本語 slug の不一致を避ける） */
-function lpPath(row: { id: string }): string {
-  return `/p/${row.id}`;
+/** 公開 LP URL は常に slug（未設定時は path を null） */
+function lpPublicPath(row: { slug: string | null }): {
+  path: string | null;
+  slug_missing: boolean;
+} {
+  const s = (row.slug ?? '').trim();
+  if (!s) {
+    return { path: null, slug_missing: true };
+  }
+  return {
+    path: `/p/${encodeURIComponent(s)}`,
+    slug_missing: false,
+  };
 }
 
 /**
@@ -93,14 +103,18 @@ export async function GET(request: Request) {
       }
 
       const ordered = (groupRows ?? []) as ProjectLpRow[];
-      const items = ordered.map((row) => ({
-        id: row.id,
-        slug: row.slug,
-        area: row.area,
-        service: row.service,
-        publish_status: row.publish_status,
-        path: lpPath(row),
-      }));
+      const items = ordered.map((row) => {
+        const { path, slug_missing } = lpPublicPath(row);
+        return {
+          id: row.id,
+          slug: row.slug,
+          area: row.area,
+          service: row.service,
+          publish_status: row.publish_status,
+          path,
+          slug_missing,
+        };
+      });
 
       return NextResponse.json({ ok: true, items });
     }
@@ -151,14 +165,18 @@ export async function GET(request: Request) {
       });
     }
 
-    const items = ordered.map((row) => ({
-      id: row.id,
-      slug: row.slug,
-      area: row.area,
-      service: row.service,
-      publish_status: row.publish_status,
-      path: lpPath(row),
-    }));
+    const items = ordered.map((row) => {
+      const { path, slug_missing } = lpPublicPath(row);
+      return {
+        id: row.id,
+        slug: row.slug,
+        area: row.area,
+        service: row.service,
+        publish_status: row.publish_status,
+        path,
+        slug_missing,
+      };
+    });
 
     return NextResponse.json({ ok: true, items });
   } catch (e) {

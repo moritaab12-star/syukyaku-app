@@ -369,9 +369,9 @@ export function AgentInstructionInput({
                 className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 pb-2 last:border-0 last:pb-0"
               >
                 <span className="text-slate-200">{c.title}</span>
-                {c.slug ? (
+                {c.slug?.trim() ? (
                   <Link
-                    href={`/p/${encodeURIComponent(c.slug)}`}
+                    href={`/p/${encodeURIComponent(c.slug.trim())}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-sky-400 hover:underline"
@@ -379,8 +379,14 @@ export function AgentInstructionInput({
                     プレビュー
                     <ExternalLink className="h-3 w-3" />
                   </Link>
-                ) : null}
-                <span className="font-mono text-[10px] text-slate-500">{c.slug || c.id}</span>
+                ) : (
+                  <span className="text-xs text-amber-200/90">
+                    slug 未設定のためプレビュー不可
+                  </span>
+                )}
+                <span className="font-mono text-[10px] text-slate-500">
+                  {c.slug?.trim() ? c.slug.trim() : `id: ${c.id}`}
+                </span>
               </li>
             ))}
           </ul>
