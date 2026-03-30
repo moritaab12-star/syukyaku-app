@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabase';
 import { verifyAdminRequest } from '@/lib/admin-auth';
 import { publishProjectToNextSite } from '@/app/lib/publish-project-next';
+import { normalizeServiceName } from '@/app/lib/agent/normalize-service';
+import { resolveLpTemplateRow } from '@/app/lib/agent/resolve-template-row';
 
 const ALLOWED_POST_COUNTS = new Set([1, 3, 5, 10]);
 
@@ -10,62 +12,10 @@ const ALLOWED_POST_COUNTS = new Set([1, 3, 5, 10]);
 const DRAFT_OR_NULL_STATUS =
   'publish_status.eq.draft,publish_status.is.null';
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 type ProjectRow = Record<string, unknown>;
 
 function makeTempSlug(suffix: string): string {
   return `temp-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}${suffix}`;
-}
-
-function serviceMatches(row: ProjectRow, service: string): boolean {
-  const s = row.service;
-  return typeof s === 'string' && s.trim() === service;
-}
-
-/** テンプレ決定: focus → なければ候補先頭のフル行 */
-async function resolveTemplateRow(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
-  service: string,
-  focusProjectId: string | null,
-): Promise<{ template: ProjectRow | null; error: string | null }> {
-  if (focusProjectId && UUID_RE.test(focusProjectId.trim())) {
-    const { data: focusRow, error: focusErr } = await supabase
-      .from('projects')
-      .select('*')
-      .eq('id', focusProjectId.trim())
-      .maybeSingle();
-    if (focusErr) {
-      return { template: null, error: focusErr.message };
-    }
-    if (focusRow && serviceMatches(focusRow as ProjectRow, service)) {
-      return { template: focusRow as ProjectRow, error: null };
-    }
-  }
-
-  const { data: cand, error: candErr } = await supabase
-    .from('projects')
-    .select('*')
-    .or(DRAFT_OR_NULL_STATUS)
-    .not('slug', 'is', null)
-    .neq('slug', '')
-    .eq('service', service)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (candErr) {
-    return { template: null, error: candErr.message };
-  }
-  if (!cand) {
-    return {
-      template: null,
-      error:
-        '複製元となるプロジェクトがありません。同じ業種の下書き・未公開行を1件以上用意するか、フォーカス行を指定してください。',
-    };
-  }
-  return { template: cand as ProjectRow, error: null };
 }
 
 async function fetchCandidateIdSlugs(
@@ -141,10 +91,11 @@ type PlanResult = {
 
 async function computePlan(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
-  service: string,
+  serviceRaw: string,
   postCount: number,
   focusProjectId: string | null,
 ): Promise<PlanResult> {
+  const service = normalizeServiceName(serviceRaw);
   const candidates = await fetchCandidateIdSlugs(supabase, service);
   const existingCandidateCount = candidates.length;
 
@@ -163,10 +114,11 @@ async function computePlan(
     };
   }
 
-  const { template, error } = await resolveTemplateRow(
+  const { template, error } = await resolveLpTemplateRow(
     supabase,
     service,
     focusProjectId,
+    '複製元となるプロジェクトがありません。同じ業種の下書き・未公開行を1件以上用意するか、フォーカス行を指定してください。',
   );
   if (!template || error) {
     return {
@@ -214,7 +166,7 @@ export async function GET(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const service = (searchParams.get('service') ?? '').trim();
+    const service = normalizeServiceName(searchParams.get('service') ?? '');
     const postCountParam = parseInt(searchParams.get('postCount') ?? '1', 10);
     const postCount = ALLOWED_POST_COUNTS.has(postCountParam)
       ? postCountParam
@@ -256,7 +208,9 @@ export async function POST(request: Request) {
       focusProjectId?: string | null;
     };
 
-    const service = typeof body.service === 'string' ? body.service.trim() : '';
+    const service = normalizeServiceName(
+      typeof body.service === 'string' ? body.service : '',
+    );
     const postCountParam = parseInt(String(body.postCount ?? 1), 10);
     const postCount = ALLOWED_POST_COUNTS.has(postCountParam)
       ? postCountParam
@@ -283,10 +237,11 @@ export async function POST(request: Request) {
     if (candidates.length >= postCount) {
       targets = candidates.slice(0, postCount);
     } else {
-      const { template, error } = await resolveTemplateRow(
+      const { template, error } = await resolveLpTemplateRow(
         supabase,
         service,
         focusProjectId,
+        '複製元となるプロジェクトがありません。同じ業種の下書き・未公開行を1件以上用意するか、フォーカス行を指定してください。',
       );
       if (!template || error) {
         return NextResponse.json(

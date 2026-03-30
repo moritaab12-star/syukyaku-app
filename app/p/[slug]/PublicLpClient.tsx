@@ -6,7 +6,9 @@ import Link from 'next/link';
 import { createSupabaseClient } from '@/lib/supabase';
 import { Store } from 'lucide-react';
 import { buildLpViewModel, type LpViewModel } from '@/app/lib/lp-template';
-import { parseLpUiCopy } from '@/app/lib/lp-ui-copy';
+import type { LpUiCopy } from '@/app/lib/lp-ui-copy';
+import { mergeLpUiCopyModeBaseWithDb, parseLpUiCopy } from '@/app/lib/lp-ui-copy';
+import { buildAgentModeStaticUiCopyPatch } from '@/app/lib/agent/applyEnhancement';
 import type { CompanyInfoDisplay } from '@/app/lib/companyInfoFormatter';
 import { buildLpHtmlMarkup } from '@/app/lib/lpToHtmlCore';
 import {
@@ -14,7 +16,7 @@ import {
   buildAnchorTitle,
   type RelatedLink,
 } from '@/app/lib/related-links';
-import type { AgentAppealMode } from '@/app/lib/agent/types';
+import type { AgentAppealMode, ParsedInstruction } from '@/app/lib/agent/types';
 
 const AGENT_MODES: AgentAppealMode[] = [
   'price',
@@ -27,6 +29,30 @@ const AGENT_MODES: AgentAppealMode[] = [
 function parseAgentMode(m: string | null | undefined): AgentAppealMode | null {
   const s = (m ?? '').trim();
   return AGENT_MODES.includes(s as AgentAppealMode) ? (s as AgentAppealMode) : null;
+}
+
+function buildPreviewLpUiCopy(proj: PublicLpProjectRow): LpUiCopy | null {
+  const mode = parseAgentMode(proj.mode);
+  if (!mode) {
+    return parseLpUiCopy(proj.lp_ui_copy);
+  }
+  const themeTitle =
+    [proj.area, proj.service].filter(Boolean).join('').trim() || 'LP';
+  const parsed: ParsedInstruction = {
+    area: (proj.area ?? '').trim() || '地域',
+    service: (proj.service ?? '').trim() || 'サービス',
+    count: 1,
+    target: '',
+    appeal: (proj.keyword ?? '').trim().slice(0, 200),
+  };
+  const patch = buildAgentModeStaticUiCopyPatch({
+    mode,
+    themeTitle,
+    parsed,
+    rawAnswers: proj.raw_answers,
+    patternSummary: null,
+  });
+  return mergeLpUiCopyModeBaseWithDb(patch, proj.lp_ui_copy);
 }
 
 export type PublicLpProjectRow = {
@@ -85,42 +111,46 @@ export function PublicLpClient({
 
     const proj = initialProject;
     setProject(proj);
-    const supabase = createSupabaseClient();
 
     (async () => {
       try {
-        const relatedRows = await fetchRelatedProjectRows(
-          supabase,
-          {
-            id: proj.id,
-            slug: proj.slug || proj.id,
-            area: proj.area ?? null,
-            service: proj.service ?? null,
-            intent: proj.intent ?? null,
-            industry_key: proj.industry_key ?? null,
-          },
-          { min: 3, max: 5 },
-        );
-
-        const relatedLinks: RelatedLink[] = relatedRows.map((r) => {
-          const area = (
-            r.area ??
-            r.target_area ??
-            (Array.isArray(r.areas) ? r.areas[0] : '') ??
-            ''
-          ).trim();
-          const service = (r.service ?? '').trim();
-          const intent = (
-            typeof r.intent === 'string' ? (r.intent as any) : 'general'
-          ) as any;
-          return {
-            title: buildAnchorTitle({ area, service, intent }),
-            slug: r.slug,
-            area: area || '{{area_name}}',
-            service: service || '{{service_name}}',
-            intent,
-          };
-        });
+        let relatedLinks: RelatedLink[] = [];
+        try {
+          const supabase = createSupabaseClient();
+          const relatedRows = await fetchRelatedProjectRows(
+            supabase,
+            {
+              id: proj.id,
+              slug: proj.slug || proj.id,
+              area: proj.area ?? null,
+              service: proj.service ?? null,
+              intent: proj.intent ?? null,
+              industry_key: proj.industry_key ?? null,
+            },
+            { min: 3, max: 5 },
+          );
+          relatedLinks = relatedRows.map((r) => {
+            const area = (
+              r.area ??
+              r.target_area ??
+              (Array.isArray(r.areas) ? r.areas[0] : '') ??
+              ''
+            ).trim();
+            const service = (r.service ?? '').trim();
+            const intent = (
+              typeof r.intent === 'string' ? (r.intent as any) : 'general'
+            ) as any;
+            return {
+              title: buildAnchorTitle({ area, service, intent }),
+              slug: r.slug,
+              area: area || '{{area_name}}',
+              service: service || '{{service_name}}',
+              intent,
+            };
+          });
+        } catch (e) {
+          console.error('[PublicLpClient] related LP fetch skipped', e);
+        }
 
         const vs =
           typeof proj.variation_seed === 'number' &&
@@ -128,7 +158,7 @@ export function PublicLpClient({
             ? Math.trunc(proj.variation_seed)
             : 0;
 
-        const lpUiCopy = parseLpUiCopy(proj.lp_ui_copy);
+        const lpUiCopy = buildPreviewLpUiCopy(proj);
 
         const { view: nextView, company: nextCompany } = buildLpViewModel(
           proj.raw_answers,
@@ -175,17 +205,22 @@ export function PublicLpClient({
       view.diagnosisMode === 'diagnosis'
         ? '3つ当てはまったら早めの診断をおすすめします'
         : 'まずは無料相談からはじめませんか？';
-    const uiCopy = parseLpUiCopy(project.lp_ui_copy);
-    const { jsonLdScript, bodyInner } = buildLpHtmlMarkup({
-      view,
-      company,
-      projectType: project.project_type,
-      diagnosisModeTitle,
-      pageUrl: previewPageUrl,
-      heroImageUrl: project.hero_image_url ?? null,
-      uiCopy,
-    });
-    return `${jsonLdScript}\n${bodyInner}`;
+    const uiCopy = buildPreviewLpUiCopy(project);
+    try {
+      const { jsonLdScript, bodyInner } = buildLpHtmlMarkup({
+        view,
+        company,
+        projectType: project.project_type,
+        diagnosisModeTitle,
+        pageUrl: previewPageUrl,
+        heroImageUrl: project.hero_image_url ?? null,
+        uiCopy,
+      });
+      return `${jsonLdScript}\n${bodyInner}`;
+    } catch (e) {
+      console.error('[PublicLpClient] buildLpHtmlMarkup', e);
+      return '';
+    }
   }, [view, company, project, previewPageUrl]);
 
   if (loading) {

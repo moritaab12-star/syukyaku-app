@@ -190,3 +190,10 @@ ${patLine}
   console.error('[agent] applyEnhancement: static fallback');
   return staticFallback(input);
 }
+
+/** Gemini なしの訴求モード別下地（公開 /p プレビューと applyEnhancement 失敗時と共用） */
+export function buildAgentModeStaticUiCopyPatch(
+  input: ApplyEnhancementInput,
+): Partial<LpUiCopy> {
+  return staticFallback(input);
+}

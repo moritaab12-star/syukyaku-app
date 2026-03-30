@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabase';
 import { verifyAdminRequest } from '@/lib/admin-auth';
+import { normalizeServiceName } from '@/app/lib/agent/normalize-service';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -119,10 +120,10 @@ export async function PATCH(
         ? body.resolved_area.trim()
         : null;
     const areas = Array.isArray(body.areas) ? body.areas : [];
-    const service =
-      typeof body.service === 'string' && body.service.trim().length > 0
-        ? body.service.trim()
-        : null;
+    const serviceNorm = normalizeServiceName(
+      typeof body.service === 'string' ? body.service : '',
+    );
+    const service = serviceNorm.length > 0 ? serviceNorm : null;
 
     const industryKeyPatch = normalizeIndustryKeyPatch(body.industry_key);
 

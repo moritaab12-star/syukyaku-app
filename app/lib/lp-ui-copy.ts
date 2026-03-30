@@ -99,6 +99,107 @@ export function parseLpUiCopy(raw: unknown): LpUiCopy | null {
   return Object.keys(copy).length > 0 ? copy : null;
 }
 
+const LP_UI_COPY_STRING_KEYS: (keyof LpUiCopy)[] = [
+  'headline',
+  'subheadline',
+  'hero_badge_label',
+  'hero_cta_primary_phone',
+  'hero_cta_primary_web',
+  'hero_cta_note',
+  'line_cta_label',
+  'cta_second_primary_phone',
+  'cta_second_primary_web',
+  'cta_second_title',
+  'cta_second_lead',
+  'cta_second_note',
+  'problems_title',
+  'problems_lead',
+  'diagnosis_lead',
+  'diagnosis_cta_phone',
+  'diagnosis_cta_web',
+  'consultation_lead',
+  'consultation_form_cta',
+  'consultation_note',
+  'trust_inline_title',
+  'trust_inline_lead',
+  'benefit_inline_title',
+  'benefit_inline_lead',
+];
+
+const LP_UI_COPY_ARRAY_KEYS: (keyof LpUiCopy)[] = [
+  'problems_bullets',
+  'diagnosis_check_items',
+];
+
+function lenientStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v
+    .filter((x) => typeof x === 'string' && x.trim().length > 0)
+    .map((x) => String(x).trim());
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * DB の lp_ui_copy 生値から上書き判定用に項目を取り出す。
+ * 配列は 1 件以上あれば採用（parseLpUiCopy は 3 件必須のため、merge 専用）。
+ */
+function extractDbLpUiCopyOverlay(raw: unknown): Partial<LpUiCopy> {
+  if (raw == null || !isObj(raw)) return {};
+  const o = raw;
+  const out: Partial<LpUiCopy> = {};
+
+  for (const k of LP_UI_COPY_STRING_KEYS) {
+    const s = asTrimString(o[k as string]);
+    if (s) (out as Record<string, string>)[k as string] = s;
+  }
+
+  const bullets = lenientStringArray(o.problems_bullets);
+  if (bullets) out.problems_bullets = bullets.slice(0, 3);
+
+  const checks = lenientStringArray(o.diagnosis_check_items);
+  if (checks) out.diagnosis_check_items = checks.slice(0, 3);
+
+  return out;
+}
+
+/**
+ * mode 用静的下地（modeBase）を土台にし、DB raw に存在する項目は DB を優先する。
+ * 文字列: 非空なら DB、なければ modeBase。配列: DB に 1 件以上なら DB 全体、なければ modeBase。
+ */
+export function mergeLpUiCopyModeBaseWithDb(
+  modeBase: Partial<LpUiCopy>,
+  dbRaw: unknown,
+): LpUiCopy | null {
+  const db = extractDbLpUiCopyOverlay(dbRaw);
+  const out: LpUiCopy = {};
+
+  for (const k of LP_UI_COPY_STRING_KEYS) {
+    const d = db[k];
+    const b = modeBase[k];
+    const fromDb = typeof d === 'string' && d.trim().length > 0;
+    const fromBase = typeof b === 'string' && b.trim().length > 0;
+    const v = fromDb ? d!.trim() : fromBase ? (b as string).trim() : undefined;
+    if (v !== undefined) (out as Record<string, string>)[k as string] = v;
+  }
+
+  for (const k of LP_UI_COPY_ARRAY_KEYS) {
+    const d = db[k];
+    const b = modeBase[k];
+    const dbArr = Array.isArray(d) && d.length > 0 ? d : undefined;
+    const baseArr = Array.isArray(b) && b.length > 0 ? b : undefined;
+    const pick = dbArr ?? baseArr;
+    if (pick && pick.length > 0) {
+      const cleaned = pick
+        .filter((x) => typeof x === 'string' && x.trim().length > 0)
+        .map((x) => String(x).trim())
+        .slice(0, 3);
+      if (cleaned.length > 0) (out as Record<string, string[]>)[k as string] = cleaned;
+    }
+  }
+
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** 兄弟行の差別化用: headline のみ抽出 */
 export function lpUiCopyHeadlineFromRow(row: {
   fv_catch_headline?: string | null;

@@ -14,62 +14,8 @@ import {
   mergeLpUiCopyAfterFv,
   mergeLpUiCopyForInsert,
 } from '@/app/lib/agent/merge-lp-ui-copy';
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-const DRAFT_OR_NULL_STATUS =
-  'publish_status.eq.draft,publish_status.is.null';
-
-type ProjectRow = Record<string, unknown>;
-
-function serviceMatches(row: ProjectRow, service: string): boolean {
-  const s = row.service;
-  return typeof s === 'string' && s.trim() === service;
-}
-
-async function resolveTemplateRow(
-  supabase: SupabaseClient,
-  service: string,
-  focusProjectId: string | null,
-): Promise<{ template: ProjectRow | null; error: string | null }> {
-  if (focusProjectId && UUID_RE.test(focusProjectId.trim())) {
-    const { data: focusRow, error: focusErr } = await supabase
-      .from('projects')
-      .select('*')
-      .eq('id', focusProjectId.trim())
-      .maybeSingle();
-    if (focusErr) {
-      return { template: null, error: focusErr.message };
-    }
-    if (focusRow && serviceMatches(focusRow as ProjectRow, service)) {
-      return { template: focusRow as ProjectRow, error: null };
-    }
-  }
-
-  const { data: cand, error: candErr } = await supabase
-    .from('projects')
-    .select('*')
-    .or(DRAFT_OR_NULL_STATUS)
-    .not('slug', 'is', null)
-    .neq('slug', '')
-    .eq('service', service)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (candErr) {
-    return { template: null, error: candErr.message };
-  }
-  if (!cand) {
-    return {
-      template: null,
-      error:
-        '複製元となるプロジェクトがありません。同じ業種の下書きを用意するか、template_project_id を指定してください。',
-    };
-  }
-  return { template: cand as ProjectRow, error: null };
-}
+import { normalizeServiceName } from '@/app/lib/agent/normalize-service';
+import { resolveLpTemplateRow } from '@/app/lib/agent/resolve-template-row';
 
 function deepClone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -142,10 +88,16 @@ export async function executeLpGeneration(
     researchUsed,
   } = input;
 
-  const { template, error: tmplErr } = await resolveTemplateRow(
+  const parsedNorm: ParsedInstruction = {
+    ...parsed,
+    service: normalizeServiceName(parsed.service),
+  };
+
+  const { template, error: tmplErr } = await resolveLpTemplateRow(
     supabase,
-    parsed.service.trim(),
+    parsedNorm.service,
     templateProjectId,
+    '複製元となるプロジェクトがありません。同じ業種の下書きを用意するか、template_project_id を指定してください。',
   );
 
   if (!template || tmplErr) {
@@ -154,8 +106,8 @@ export async function executeLpGeneration(
   }
 
   const areas =
-    parsed.area.trim().length > 0
-      ? [parsed.area.trim()]
+    parsedNorm.area.trim().length > 0
+      ? [parsedNorm.area.trim()]
       : Array.isArray(template.areas)
         ? (template.areas as string[])
         : [];
@@ -191,17 +143,17 @@ export async function executeLpGeneration(
     );
 
     const areaVal =
-      parsed.area.trim().length > 0
-        ? parsed.area.trim()
+      parsedNorm.area.trim().length > 0
+        ? parsedNorm.area.trim()
         : typeof template.area === 'string'
           ? template.area
           : null;
     const serviceVal =
-      parsed.service.trim().length > 0
-        ? parsed.service.trim()
-        : typeof template.service === 'string'
-          ? template.service
-          : null;
+      parsedNorm.service.length > 0
+        ? parsedNorm.service
+        : normalizeServiceName(
+            typeof template.service === 'string' ? template.service : '',
+          ) || null;
 
     const baseSlug = slugifyPart(
       [areaVal, serviceVal, keyword, String(i + 1)].filter(Boolean).join('-'),

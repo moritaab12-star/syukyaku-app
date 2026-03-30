@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase';
 import { detectSearchIntent } from '@/app/lib/intent';
 import { splitProjectsByAreaAndService } from '@/app/lib/projectSplit';
 import { runFvCatchForLpGroupMembersIfNeeded } from '@/app/lib/fv-catch-generation';
+import { normalizeServiceName } from '@/app/lib/agent/normalize-service';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -73,10 +74,10 @@ export async function POST(request: Request) {
         ? body.resolved_area.trim()
         : null;
     const areas = Array.isArray(body.areas) ? body.areas : [];
-    const service =
-      typeof body.service === 'string' && body.service.trim().length > 0
-        ? body.service.trim()
-        : null;
+    const serviceNorm = normalizeServiceName(
+      typeof body.service === 'string' ? body.service : '',
+    );
+    const service = serviceNorm.length > 0 ? serviceNorm : null;
     const keyword =
       typeof body.keyword === 'string' && body.keyword.trim().length > 0
         ? body.keyword.trim()
@@ -158,7 +159,7 @@ export async function POST(request: Request) {
         slug: first.slug,
         area: first.area,
         target_area: first.area,
-        service: first.service,
+        service: normalizeServiceName(first.service) || first.service,
         keyword: first.keyword,
         intent: detectSearchIntent(first.keyword),
         parent_project_id: null,
@@ -191,7 +192,7 @@ export async function POST(request: Request) {
           slug: sp.slug,
           area: sp.area,
           target_area: sp.area,
-          service: sp.service,
+          service: normalizeServiceName(sp.service) || sp.service,
           keyword: sp.keyword,
           intent: detectSearchIntent(sp.keyword),
           parent_project_id: parentId,
