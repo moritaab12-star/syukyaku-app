@@ -333,7 +333,7 @@ export default function AgentInput() {
                 </p>
                 {c.slug && (
                   <Link
-                    href={`/p/${c.slug}`}
+                    href={`/p/${encodeURIComponent((c.slug ?? '').trim())}`}
                     className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-sky-400 hover:text-sky-300"
                     target="_blank"
                     rel="noreferrer"
