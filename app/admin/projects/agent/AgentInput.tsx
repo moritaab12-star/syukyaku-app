@@ -331,16 +331,14 @@ export default function AgentInput() {
                     {c.status ?? '—'}
                   </span>
                 </p>
-                {c.slug && (
-                  <Link
-                    href={`/p/${encodeURIComponent((c.slug ?? '').trim())}`}
-                    className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-sky-400 hover:text-sky-300"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    プレビュー <ExternalLink className="h-3 w-3" />
-                  </Link>
-                )}
+                <Link
+                  href={`/p/${c.id}`}
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-sky-400 hover:text-sky-300"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  プレビュー <ExternalLink className="h-3 w-3" />
+                </Link>
                 <p className="mt-1 font-mono text-[10px] text-slate-500 break-all">
                   {c.id}
                 </p>

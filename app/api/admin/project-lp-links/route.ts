@@ -16,19 +16,18 @@ type ProjectLpRow = {
   created_at: string | null;
 };
 
-/** 公開 LP URL は常に slug（未設定時は path を null） */
-function lpPublicPath(row: { slug: string | null }): {
-  path: string | null;
+/**
+ * 管理画面・プレビュー用は `/p/{projects.id}`（UUID）。
+ * `fetchProjectBySlugOrId` が UUID を id 照会するため、日本語ロング slug やエンコードずれの影響を受けない。
+ */
+function lpPreviewPath(row: { id: string; slug: string | null }): {
+  path: string;
   slug_missing: boolean;
 } {
   const s = (row.slug ?? '').trim();
-  if (!s) {
-    return { path: null, slug_missing: true };
-  }
-  // DB の slug と同一の論理値をパスに載せる（RFC 3986 では非 ASCII は % エンコードが安全）
   return {
-    path: `/p/${encodeURIComponent(s)}`,
-    slug_missing: false,
+    path: `/p/${row.id}`,
+    slug_missing: !s,
   };
 }
 
@@ -105,7 +104,7 @@ export async function GET(request: Request) {
 
       const ordered = (groupRows ?? []) as ProjectLpRow[];
       const items = ordered.map((row) => {
-        const { path, slug_missing } = lpPublicPath(row);
+        const { path, slug_missing } = lpPreviewPath(row);
         return {
           id: row.id,
           slug: row.slug,
@@ -167,7 +166,7 @@ export async function GET(request: Request) {
     }
 
     const items = ordered.map((row) => {
-      const { path, slug_missing } = lpPublicPath(row);
+      const { path, slug_missing } = lpPreviewPath(row);
       return {
         id: row.id,
         slug: row.slug,

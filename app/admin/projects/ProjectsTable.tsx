@@ -22,8 +22,8 @@ type LpLinkItem = {
   area: string | null;
   service: string | null;
   publish_status: string | null;
-  /** `/p/{slug}` 。slug 未設定時は null */
-  path: string | null;
+  /** プレビュー用 `/p/{projectId}` */
+  path: string;
   slug_missing?: boolean;
 };
 
@@ -220,10 +220,10 @@ export function ProjectsTable({
     if (typeof window === 'undefined' || lpLinksItems.length === 0) return;
     const origin = window.location.origin;
     const lines = lpLinksItems
-      .filter((i) => typeof i.path === 'string' && i.path.length > 0)
+      .filter((i) => i.path.length > 0)
       .map((i) => `${origin}${i.path}`);
     if (lines.length === 0) {
-      setLpLinksError('slug が設定された LP の URL がありません');
+      setLpLinksError('コピーできるプレビュー URL がありません');
       return;
     }
     const text = lines.join('\n');
@@ -504,36 +504,29 @@ export function ProjectsTable({
                     </div>
                     <ul className="space-y-3">
                       {lpLinksItems.map((item) => {
-                        const path = item.path;
                         const absUrl =
-                          path && typeof window !== 'undefined'
-                            ? `${window.location.origin}${path}`
-                            : path
-                              ? path
-                              : null;
+                          typeof window !== 'undefined'
+                            ? `${window.location.origin}${item.path}`
+                            : item.path;
                         return (
                           <li
                             key={item.id}
                             className="rounded-xl border border-slate-800 bg-slate-900/80 p-3 text-xs text-slate-300"
                           >
-                            {absUrl ? (
-                              <a
-                                href={absUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="break-all font-mono text-[11px] text-sky-300 hover:text-sky-200"
-                              >
-                                {absUrl}
-                              </a>
-                            ) : (
-                              <p className="text-amber-200/90">
-                                slug が未設定のためプレビュー URL を出せません（id:{' '}
-                                <span className="font-mono text-slate-400">
-                                  {item.id}
-                                </span>
-                                ）
+                            <a
+                              href={absUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="break-all font-mono text-[11px] text-sky-300 hover:text-sky-200"
+                            >
+                              {absUrl}
+                            </a>
+                            {item.slug_missing ? (
+                              <p className="mt-1 text-amber-200/80">
+                                slug 未設定（公開用のきれいな URL とは別。プレビューは上記 id
+                                パスで表示されます）
                               </p>
-                            )}
+                            ) : null}
                             <div className="mt-2 grid gap-0.5 text-[11px] text-slate-400">
                               <span>
                                 エリア: {item.area?.trim() || '—'}
