@@ -22,7 +22,25 @@ export default async function PublicLpPage({
     );
   }
 
-  const supabase = createSupabaseAdminClient();
+  let supabase;
+  try {
+    supabase = createSupabaseAdminClient();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '';
+    if (
+      msg.includes('Supabase service env') ||
+      msg.includes('SUPABASE_SERVICE_ROLE_KEY')
+    ) {
+      return (
+        <PublicLpClient
+          initialProject={null}
+          initialError="サービスロール用の Supabase 環境変数が設定されていません（SUPABASE_SERVICE_ROLE_KEY）。"
+        />
+      );
+    }
+    throw e;
+  }
+
   const { data: projectData, error: projectErr } = await fetchProjectBySlugOrId(
     supabase,
     slug,

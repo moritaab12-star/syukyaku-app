@@ -16,9 +16,9 @@ type ProjectLpRow = {
   created_at: string | null;
 };
 
-function lpPath(row: { id: string; slug: string | null }): string {
-  const s = (row.slug ?? '').trim();
-  return `/p/${s || row.id}`;
+/** プレビューは slug では id を使う（長い日本語 slug の不一致を避ける） */
+function lpPath(row: { id: string }): string {
+  return `/p/${row.id}`;
 }
 
 /**
