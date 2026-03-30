@@ -155,8 +155,16 @@ export async function executeLpGeneration(
             typeof template.service === 'string' ? template.service : '',
           ) || null;
 
+    const themeKey = slugifyPart(keyword).slice(0, 28);
     const baseSlug = slugifyPart(
-      [areaVal, serviceVal, keyword, String(i + 1)].filter(Boolean).join('-'),
+      [
+        areaVal ? slugifyPart(areaVal).slice(0, 18) : '',
+        serviceVal ? slugifyPart(serviceVal).slice(0, 18) : '',
+        themeKey,
+        String(i + 1),
+      ]
+        .filter((x) => x.length > 0)
+        .join('-'),
     );
     const slug = await uniqueSlugForInsert(supabase, baseSlug);
 

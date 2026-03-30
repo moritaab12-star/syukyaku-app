@@ -25,8 +25,9 @@ function lpPublicPath(row: { slug: string | null }): {
   if (!s) {
     return { path: null, slug_missing: true };
   }
+  // DB の slug と同一文字列をパスに載せる（Next / ブラウザが UTF-8 でエンコード。二重 encode は避ける）
   return {
-    path: `/p/${encodeURIComponent(s)}`,
+    path: `/p/${s}`,
     slug_missing: false,
   };
 }

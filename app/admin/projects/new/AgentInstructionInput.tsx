@@ -371,7 +371,7 @@ export function AgentInstructionInput({
                 <span className="text-slate-200">{c.title}</span>
                 {c.slug?.trim() ? (
                   <Link
-                    href={`/p/${encodeURIComponent(c.slug.trim())}`}
+                    href={`/p/${c.slug.trim()}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-sky-400 hover:underline"

@@ -1,5 +1,8 @@
 import { createSupabaseAdminClient } from '@/lib/supabase';
-import { fetchProjectBySlugOrId } from '@/app/lib/project-by-slug-or-id';
+import {
+  decodePathSlugParam,
+  fetchProjectBySlugOrId,
+} from '@/app/lib/project-by-slug-or-id';
 import {
   PublicLpClient,
   type PublicLpProjectRow,
@@ -14,7 +17,8 @@ export default async function PublicLpPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug: rawSlug } = await params;
-  const slug = typeof rawSlug === 'string' ? rawSlug.trim() : '';
+  const slug =
+    typeof rawSlug === 'string' ? decodePathSlugParam(rawSlug) : '';
 
   if (!slug) {
     return (
