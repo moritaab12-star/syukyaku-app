@@ -1,7 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AgentAppealMode, EvaluateResult } from '@/app/lib/agent/types';
+import { evaluateAgainstLpGroupHistory } from '@/app/lib/agent/evaluateLpGroupSimilarity';
+import { loadLpGroupHistory } from '@/app/lib/agent/loadLpGroupHistory';
+import { normalizeServiceName } from '@/app/lib/agent/normalize-service';
 import { buildLpViewModel } from '@/app/lib/lp-template';
 import { buildLpHtmlMarkup } from '@/app/lib/lpToHtmlCore';
+import { resolveLpDesignLayer } from '@/app/lib/lp-design-layer/resolve';
 import { parseLpUiCopy } from '@/app/lib/lp-ui-copy';
 import { runLpHtmlGuards } from '@/lib/guard/lp-html-static-check';
 import { stripHtmlToPlainText } from '@/lib/guard/html-text';
@@ -43,7 +47,7 @@ export async function evaluateLp(
   const { data: row, error: fetchErr } = await supabase
     .from('projects')
     .select(
-      'id, slug, company_name, project_type, raw_answers, company_info, area, service, industry_key, target_area, areas, keyword, intent, lp_group_id, variation_seed, hero_image_url, fv_catch_headline, fv_catch_subheadline, lp_ui_copy',
+      'id, slug, company_name, project_type, raw_answers, company_info, area, service, industry_key, target_area, areas, keyword, intent, lp_group_id, variation_seed, hero_image_url, fv_catch_headline, fv_catch_subheadline, lp_ui_copy, mode, lp_design',
     )
     .eq('id', projectId)
     .maybeSingle();
@@ -83,6 +87,7 @@ export async function evaluateLp(
     fv_catch_subheadline?: string | null;
     lp_ui_copy?: unknown;
     mode?: string | null;
+    lp_design?: unknown;
   };
 
   try {
@@ -123,6 +128,11 @@ export async function evaluateLp(
         ? `https://example.com/p/${proj.slug}`
         : undefined);
 
+    const designLayer = resolveLpDesignLayer({
+      lpDesignJson: proj.lp_design,
+      variationSeed: vs,
+    });
+
     const { bodyInner } = buildLpHtmlMarkup({
       view,
       company,
@@ -133,6 +143,7 @@ export async function evaluateLp(
       templateSeed: vs,
       heroImageUrl: proj.hero_image_url ?? null,
       uiCopy: lpUiCopy,
+      designLayer,
     });
 
     const guard = runLpHtmlGuards(bodyInner);
@@ -158,6 +169,7 @@ export async function evaluateLp(
 
     const kw = (proj.keyword ?? '').trim();
     const kn = normalizeKeyword(kw);
+    const hl = (view.headline ?? '').trim();
     if (kn.length > 0) {
       const dup = opts.siblingKeywords.filter(
         (x) => normalizeKeyword(x) === kn,
@@ -168,7 +180,43 @@ export async function evaluateLp(
       }
     }
 
-    const hl = (view.headline ?? '').trim();
+    let similarityWarnings: EvaluateResult['similarityWarnings'] = undefined;
+    const serviceNorm = normalizeServiceName(proj.service ?? '');
+    const areaKey = (proj.area ?? proj.target_area ?? '').trim();
+    if (serviceNorm && areaKey) {
+      try {
+        const rawHistory = await loadLpGroupHistory(supabase, {
+          parentProjectId: proj.id,
+          service: serviceNorm,
+          area: areaKey,
+          limit: 40,
+        });
+        const peers = rawHistory.filter((h) => h.id !== proj.id).slice(0, 30);
+        if (peers.length > 0) {
+          const sim = evaluateAgainstLpGroupHistory(
+            {
+              projectId: proj.id,
+              headline: hl,
+              keyword: kw,
+              mode: typeof proj.mode === 'string' ? proj.mode.trim() || null : null,
+            },
+            peers,
+          );
+          if (sim.penalty > 0) {
+            score -= sim.penalty;
+            for (const r of sim.reasons) {
+              if (!reasons.includes(r)) reasons.push(r);
+            }
+            similarityWarnings =
+              sim.similarityWarnings.length > 0
+                ? sim.similarityWarnings
+                : undefined;
+          }
+        }
+      } catch (e) {
+        console.error('[agent] evaluateLp group similarity', e);
+      }
+    }
     if (hl.length > 0 && hl.length < 8) {
       score -= 8;
       reasons.push('主見出しが短すぎる');
@@ -226,6 +274,9 @@ export async function evaluateLp(
       status,
       title,
       reasons,
+      ...(similarityWarnings != null && similarityWarnings.length > 0
+        ? { similarityWarnings }
+        : {}),
     };
   } catch (e) {
     console.error('[agent] evaluateLp', e);

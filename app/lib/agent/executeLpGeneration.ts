@@ -14,8 +14,10 @@ import {
   mergeLpUiCopyAfterFv,
   mergeLpUiCopyForInsert,
 } from '@/app/lib/agent/merge-lp-ui-copy';
+import { normalizeLpUiCopyRecord } from '@/app/lib/agent/normalizeLpCopy';
 import { normalizeServiceName } from '@/app/lib/agent/normalize-service';
 import { resolveLpTemplateRow } from '@/app/lib/agent/resolve-template-row';
+import { generateLpDesignRowForProject } from '@/app/lib/lp-design-layer/generate-with-gemini';
 
 function deepClone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -137,11 +139,6 @@ export async function executeLpGeneration(
       patternSummary,
     });
 
-    const lpUiMerged = mergeLpUiCopyForInsert(
-      template.lp_ui_copy,
-      agentPatch,
-    );
-
     const areaVal =
       parsedNorm.area.trim().length > 0
         ? parsedNorm.area.trim()
@@ -154,6 +151,19 @@ export async function executeLpGeneration(
         : normalizeServiceName(
             typeof template.service === 'string' ? template.service : '',
           ) || null;
+
+    const lpUiMergedRaw = mergeLpUiCopyForInsert(
+      template.lp_ui_copy,
+      agentPatch,
+    );
+    const lpUiMerged = normalizeLpUiCopyRecord(
+      lpUiMergedRaw as Record<string, unknown>,
+      {
+        area: areaVal,
+        service: serviceVal,
+        keyword,
+      },
+    );
 
     const themeKey = slugifyPart(keyword).slice(0, 28);
     const baseSlug = slugifyPart(
@@ -209,6 +219,36 @@ export async function executeLpGeneration(
       console.error('[agent] executeLpGeneration insert', insErr?.message);
       continue;
     }
+
+    const designInstruction = [
+      `[エージェント量産] テーマ:${theme.title}`,
+      `キーワード:${keyword}`,
+      `地域:${parsedNorm.area.trim() || ''}`,
+      `サービス:${parsedNorm.service}`,
+      parsedNorm.target?.trim() ? `ターゲット:${parsedNorm.target.trim()}` : '',
+      parsedNorm.appeal?.trim() ? `訴求:${parsedNorm.appeal.trim()}` : '',
+    ]
+      .filter((s) => s.length > 0)
+      .join('\n');
+
+    try {
+      const lpDesign = await generateLpDesignRowForProject({
+        instruction: designInstruction,
+        service: serviceVal ?? '',
+        rawAnswers,
+        variationSeed: i,
+      });
+      const { error: dErr } = await supabase
+        .from('projects')
+        .update({ lp_design: lpDesign })
+        .eq('id', ins.id);
+      if (dErr) {
+        console.error('[agent] lp_design update', ins.id, dErr.message);
+      }
+    } catch (e) {
+      console.error('[agent] lp_design generation', ins.id, e);
+    }
+
     created.push({
       id: ins.id as string,
       mode,

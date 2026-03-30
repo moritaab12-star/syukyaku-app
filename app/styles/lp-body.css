@@ -797,6 +797,180 @@
   text-decoration: underline;
 }
 
+/* ----- Design layer（CTA・フォント・最小余白は既定。accent は変更しない） ----- */
+.lp-body.lp-body--radius-sm {
+  --lp-radius: 0.625rem;
+  --lp-radius-lg: 0.875rem;
+  --lp-radius-xl: 1.125rem;
+}
+
+.lp-body.lp-body--radius-lg {
+  --lp-radius: 1rem;
+  --lp-radius-lg: 1.25rem;
+  --lp-radius-xl: 1.625rem;
+}
+
+.lp-body.lp-body--shadow-none {
+  --lp-shadow: none;
+  --lp-shadow-sm: none;
+  --lp-shadow-card: none;
+  --lp-shadow-glow: none;
+  --lp-shadow-accent: none;
+}
+
+.lp-body.lp-body--shadow-soft {
+  --lp-shadow: 0 16px 48px rgba(15, 23, 42, 0.08);
+  --lp-shadow-sm: 0 8px 28px rgba(15, 23, 42, 0.05);
+  --lp-shadow-card: 0 3px 18px rgba(15, 23, 42, 0.05);
+}
+
+.lp-body.lp-body--contrast-low {
+  --lp-border: #f1f5f9;
+  --lp-border-strong: #e2e8f0;
+}
+
+.lp-body.lp-body--contrast-high {
+  --lp-border: #cbd5e1;
+  --lp-border-strong: #94a3b8;
+}
+
+.lp-body.lp-body--theme-fresh-pop .lp-hero {
+  --lp-hero-grid: radial-gradient(
+    ellipse 80% 60% at 70% 20%,
+    rgba(56, 189, 248, 0.14),
+    transparent 55%
+  );
+}
+
+.lp-body.lp-body--theme-luxury-subtle .lp-hero {
+  --lp-hero-grid: radial-gradient(
+    ellipse 80% 60% at 70% 20%,
+    rgba(167, 139, 250, 0.1),
+    transparent 55%
+  );
+}
+
+.lp-body.lp-body--theme-warm-friendly .lp-hero {
+  --lp-hero-grid: radial-gradient(
+    ellipse 80% 60% at 70% 20%,
+    rgba(251, 113, 133, 0.1),
+    transparent 55%
+  );
+}
+
+.lp-body.lp-body--icons-minimal-line .lp-diagram {
+  border-style: dashed;
+}
+
+.lp-body .lp-diagram {
+  margin-top: 1.25rem;
+  padding: 1rem 1.125rem;
+  border-radius: var(--lp-radius);
+  border: 1px solid var(--lp-border);
+  background: var(--lp-bg-subtle);
+}
+
+.lp-body .lp-diagram__title {
+  margin: 0 0 0.65rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--lp-ink);
+}
+
+.lp-body .lp-diagram__list {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--lp-ink-muted);
+  font-size: 0.875rem;
+}
+
+.lp-body .lp-diagram__compare {
+  display: grid;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .lp-body .lp-diagram__compare {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.lp-body .lp-diagram__compare-col {
+  padding: 0.75rem 0.85rem;
+  border-radius: calc(var(--lp-radius) - 2px);
+  background: var(--lp-bg);
+  border: 1px solid var(--lp-border);
+  font-size: 0.875rem;
+  color: var(--lp-ink-muted);
+}
+
+.lp-body .lp-diagram__compare-label {
+  display: block;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--lp-ink);
+  margin-bottom: 0.35rem;
+}
+
+.lp-body .lp-diagram__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.lp-body .lp-diagram__stat {
+  flex: 1 1 6rem;
+  min-width: 5.5rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: calc(var(--lp-radius) - 2px);
+  background: var(--lp-bg);
+  border: 1px solid var(--lp-border);
+  text-align: center;
+}
+
+.lp-body .lp-diagram__stat-value {
+  display: block;
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--lp-ink);
+}
+
+.lp-body .lp-diagram__stat-label {
+  font-size: 0.72rem;
+  color: var(--lp-ink-soft);
+}
+
+.lp-body .lp-diagram__flow {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  counter-reset: lpflow;
+  font-size: 0.875rem;
+  color: var(--lp-ink-muted);
+}
+
+.lp-body .lp-diagram__flow li {
+  position: relative;
+  padding-left: 2.25rem;
+  margin-bottom: 0.55rem;
+}
+
+.lp-body .lp-diagram__flow-step {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 999px;
+  background: var(--lp-accent-dim);
+  color: var(--lp-accent-hover);
+  font-size: 0.78rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* ----- Section reveal (CSS only; data-lp-reveal on lpToHtmlCore blocks) -----
  * - prefers-reduced-motion: 無効化（アニメーションなし＝通常表示）
  * - 対応ブラウザ: scroll-driven animations（animation-timeline: view）でビューポート進入に連動

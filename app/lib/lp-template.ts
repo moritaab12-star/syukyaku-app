@@ -214,6 +214,10 @@ export function buildLpViewModel(
       `${facts.achievementNumbers[0]}件以上`) ||
     '累計実績 非公開';
 
+  /** 公開ページに mustache を出さない（個別見積りの定型文） */
+  const priceTbdMain = '個別お見積り';
+  const priceTbdAlt = '内容により個別お見積り';
+
   const priceRows = (() => {
     const ind = facts.industry || 'サービス';
     if (industryTone === 'garden') {
@@ -221,19 +225,19 @@ export function buildLpViewModel(
         ? [
             {
               label: '剪定・お手入れ（目安）',
-              price: '¥{{price_basic}}',
+              price: priceTbdMain,
               note: `${areaName}エリアの庭木の状態により異なります`,
             },
             {
               label: '高木・まとめて対応',
-              price: '¥{{price_plus}}',
+              price: priceTbdAlt,
               note: '範囲・本数によりお見積もりします',
             },
           ]
         : [
             {
               label: 'お見積り',
-              price: '¥{{price_basic}}',
+              price: priceTbdMain,
               note: `${areaName}の剪定・お手入れの参考価格`,
             },
           ];
@@ -247,19 +251,19 @@ export function buildLpViewModel(
         ? [
             {
               label: '標準工事（目安）',
-              price: '¥{{price_basic}}',
+              price: priceTbdMain,
               note: `${areaName}の一般的な${ind}工事の目安`,
             },
             {
               label: '内容を広げた場合',
-              price: '¥{{price_plus}}',
+              price: priceTbdAlt,
               note: '範囲・材質によりお見積もりします',
             },
           ]
         : [
             {
               label: 'お見積り',
-              price: '¥{{price_basic}}',
+              price: priceTbdMain,
               note: `${areaName}の${ind}の参考価格`,
             },
           ];
@@ -268,12 +272,12 @@ export function buildLpViewModel(
       return [
         {
           label: '売却査定・購入相談',
-          price: '¥{{price_basic}}',
+          price: priceTbdMain,
           note: `${areaName}エリアの物件条件により個別にご説明します（査定・初回相談は無料のことが多いです）`,
         },
         {
           label: '仲介手数料・諸費用（目安）',
-          price: '¥{{price_plus}}',
+          price: priceTbdAlt,
           note: '取引形態・価格帯により変動。契約前に内訳をご提示します',
         },
       ];
@@ -282,19 +286,19 @@ export function buildLpViewModel(
       ? [
           {
             label: '標準（目安）',
-            price: '¥{{price_basic}}',
+            price: priceTbdMain,
             note: `${areaName}の一般的な${ind}向け`,
           },
           {
             label: 'サポート重視',
-            price: '¥{{price_plus}}',
+            price: priceTbdAlt,
             note: 'フォローや保証を重視した内容',
           },
         ]
       : [
           {
             label: '目安料金',
-            price: '¥{{price_basic}}',
+            price: priceTbdMain,
             note: `${areaName}の${ind}の参考価格`,
           },
         ];

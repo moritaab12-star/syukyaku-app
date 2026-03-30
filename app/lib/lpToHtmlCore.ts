@@ -6,6 +6,8 @@ import type { GeneratedLp, LpGenerationRule } from '@/types/lp';
 import { buildLocalBusinessJsonLd } from './buildLocalBusinessJsonLd';
 import { LP_REVEAL_ATTR } from './lpRevealAttr';
 import { getLpHtmlSectionCopy } from './lp-industry';
+import type { LpDesignRow } from '@/app/lib/lp-design-layer/schema';
+import { buildDiagramSnippets } from '@/app/lib/lp-design-layer/diagram-snippets';
 
 function esc(s: string): string {
   return s
@@ -74,6 +76,11 @@ export type LpToHtmlInput = {
   generationRule?: LpGenerationRule | null;
   /** 生成層の出力。title/subtitle/faq を view に上書きしてから HTML を組む */
   generatedLp?: GeneratedLp | null;
+  /**
+   * デザイン戦略レイヤー（コピー用 mode とは独立）。
+   * 指定時のみ既存セクション内に図解ブロックを差し込む。未指定は差し込まない。
+   */
+  designLayer?: LpDesignRow | null;
 };
 
 /**
@@ -100,6 +107,14 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
           : v.faqItems,
     };
   })();
+  const designDiagrams = input.designLayer
+    ? buildDiagramSnippets(input.designLayer.diagram_flags, view)
+    : {
+        problemsAppend: '',
+        servicesAppend: '',
+        trustAppend: '',
+        beforeCtaSecond: '',
+      };
   const u = input.uiCopy ?? undefined;
   const resolvedDiagnosisTitle =
     typeof view.diagnosisSectionTitleOverride === 'string' &&
@@ -382,6 +397,7 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
       <ul class="lp-list lp-list--problems">
         ${problemsBullets.map((t) => `<li class="lp-list__item">${esc(t)}</li>`).join('')}
       </ul>
+      ${designDiagrams.problemsAppend}
     </div>
   </section>`;
 
@@ -407,6 +423,7 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
       <div class="lp-cards lp-cards--services">
         ${serviceCardsHtml}
       </div>
+      ${designDiagrams.servicesAppend}
     </div>
   </section>`;
 
@@ -438,6 +455,7 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
         <div class="lp-review"><div class="lp-review__rating">★★★★★</div><p class="lp-review__text">「問い合わせから完了まで、とても丁寧に対応してもらえました。」</p><p class="lp-review__meta">${esc(view.areaName)} / 個人のお客様</p></div>
         <div class="lp-review"><div class="lp-review__rating">★★★★☆</div><p class="lp-review__text">「料金やスケジュールも分かりやすく、安心して依頼できました。」</p><p class="lp-review__meta">${esc(view.areaName)} / 事業者様</p></div>
       </div>
+      ${designDiagrams.trustAppend}
     </div>
   </section>`;
 
@@ -457,7 +475,7 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
     </div>
   </section>`;
 
-  const ctaSecondSection = `<section class="lp-section lp-cta-second"${LP_REVEAL_ATTR} id="cta-second">
+  const ctaSecondSection = `${designDiagrams.beforeCtaSecond}<section class="lp-section lp-cta-second"${LP_REVEAL_ATTR} id="cta-second">
     <div class="lp-container lp-cta-second__inner">
       <h2 class="lp-cta-second__title">${esc(
         u?.cta_second_title?.trim() || 'まずはお気軽にご相談ください',

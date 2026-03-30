@@ -47,11 +47,20 @@ export type AgentRunResult = {
   error?: string;
 };
 
+/** 同一LPグループ内の類似LP（evaluateLp 拡張用。再生成判定の材料） */
+export type LpGroupSimilarityWarning = {
+  comparedProjectId: string;
+  title: string | null;
+  keyword: string | null;
+  level?: 'strong' | 'medium' | 'light';
+};
+
 export type EvaluateResult = {
   score: number;
   status: 'ok' | 'fix' | 'ng';
   title: string;
   reasons: string[];
+  similarityWarnings?: LpGroupSimilarityWarning[];
 };
 
 export type AgentCreatedProjectRow = {

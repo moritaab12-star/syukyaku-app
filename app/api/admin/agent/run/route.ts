@@ -47,13 +47,21 @@ export async function POST(request: Request) {
 
   try {
     console.error('[agent] run: buildAgentPlanFromInstruction');
+    const planContext = templateProjectId
+      ? { supabase, historyAnchorProjectId: templateProjectId }
+      : null;
+
     const {
       parsed,
       themes,
       themePreview,
       patternSummary,
       researchUsed,
-    } = await buildAgentPlanFromInstruction(instruction, useCompetitorResearch);
+    } = await buildAgentPlanFromInstruction(
+      instruction,
+      useCompetitorResearch,
+      planContext,
+    );
     console.error('[agent] run: executeLpGeneration', parsed);
 
     const planId = randomUUID();

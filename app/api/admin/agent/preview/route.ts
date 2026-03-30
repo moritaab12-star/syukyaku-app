@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
 import { verifyAdminRequest } from '@/lib/admin-auth';
-import { buildAgentPlanFromInstruction } from '@/app/lib/agent/buildAgentPlanFromInstruction';
+import { createSupabaseAdminClient } from '@/lib/supabase';
+import {
+  buildAgentPlanFromInstruction,
+  type BuildAgentPlanContext,
+} from '@/app/lib/agent/buildAgentPlanFromInstruction';
 
 type Body = {
   instruction?: string;
   use_competitor_research?: boolean;
+  template_project_id?: string | null;
 };
 
 export async function POST(request: Request) {
@@ -32,6 +37,25 @@ export async function POST(request: Request) {
 
   const useCompetitorResearch = body.use_competitor_research === true;
 
+  const templateRaw = body.template_project_id;
+  const templateProjectId =
+    typeof templateRaw === 'string' && templateRaw.trim().length > 0
+      ? templateRaw.trim()
+      : null;
+
+  let planContext: BuildAgentPlanContext | null = null;
+  if (templateProjectId) {
+    try {
+      const supabase = createSupabaseAdminClient();
+      planContext = {
+        supabase,
+        historyAnchorProjectId: templateProjectId,
+      };
+    } catch {
+      planContext = null;
+    }
+  }
+
   try {
     const {
       parsed,
@@ -41,6 +65,7 @@ export async function POST(request: Request) {
     } = await buildAgentPlanFromInstruction(
       instruction,
       useCompetitorResearch,
+      planContext,
     );
 
     return NextResponse.json({

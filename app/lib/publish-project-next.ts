@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildLpViewModel } from '@/app/lib/lp-template';
 import { fetchRelatedProjectRows, buildAnchorTitle, type RelatedLink } from '@/app/lib/related-links';
 import { buildPublicLpUrl } from '@/app/lib/seo-indexing';
+import { validateLpQuality } from '@/app/lib/agent/validateLpQuality';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -32,7 +33,7 @@ export async function publishProjectToNextSite(
   const slugOrIdTrim = slugOrId.trim();
 
   const selectCols =
-    'id, slug, company_name, project_type, raw_answers, company_info, area, service, industry_key, target_area, areas, keyword, intent, lp_group_id, variation_seed';
+    'id, slug, company_name, project_type, raw_answers, company_info, area, service, industry_key, target_area, areas, keyword, intent, lp_group_id, variation_seed, lp_ui_copy, fv_catch_headline, fv_catch_subheadline, mode';
 
   let q = supabase.from('projects').select(selectCols);
 
@@ -85,6 +86,10 @@ export async function publishProjectToNextSite(
     lp_group_id?: string | null;
     variation_seed?: number | null;
     industry_key?: string | null;
+    lp_ui_copy?: unknown;
+    fv_catch_headline?: string | null;
+    fv_catch_subheadline?: string | null;
+    mode?: string | null;
   };
 
 
@@ -160,6 +165,39 @@ export async function publishProjectToNextSite(
       success: false,
       error: 'slug が空のため公開できません。',
       httpStatus: 400,
+    };
+  }
+
+  const quality = validateLpQuality(
+    {
+      project_type: proj.project_type,
+      company_name: proj.company_name,
+      service: proj.service ?? null,
+      area: proj.area ?? null,
+      target_area: proj.target_area ?? null,
+      areas: proj.areas ?? null,
+      keyword: proj.keyword ?? null,
+      raw_answers: proj.raw_answers,
+      company_info: proj.company_info,
+      lp_ui_copy: proj.lp_ui_copy ?? null,
+      fv_catch_headline: proj.fv_catch_headline ?? null,
+      fv_catch_subheadline: proj.fv_catch_subheadline ?? null,
+      mode: proj.mode ?? null,
+      industry_key: proj.industry_key ?? null,
+    },
+    {
+      relatedLinks,
+      variationSeed: vs,
+      projectStableId: proj.id,
+      lpGroupId: proj.lp_group_id ?? null,
+    },
+  );
+
+  if (!quality.canPublish) {
+    return {
+      success: false,
+      error: quality.errors.join(' '),
+      httpStatus: 422,
     };
   }
 

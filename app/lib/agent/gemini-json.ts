@@ -50,3 +50,47 @@ export async function geminiGenerateJson(prompt: string): Promise<string | null>
   const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
   return raw || null;
 }
+
+/**
+ * systemInstruction 付きで JSON 応答を取得（デザイン戦略レイヤー等）。
+ */
+export async function geminiGenerateJsonWithSystem(
+  systemPrompt: string,
+  userPrompt: string,
+): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) {
+    console.error('[agent] GEMINI_API_KEY is not set');
+    return null;
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    MODEL,
+  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ parts: [{ text: userPrompt }] }],
+      generationConfig: {
+        temperature: 0.4,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json',
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    console.error('[agent] gemini request failed', res.status, errBody.slice(0, 500));
+    return null;
+  }
+
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  };
+  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
+  return raw || null;
+}

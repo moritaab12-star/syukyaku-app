@@ -5,6 +5,7 @@ import type {
   ParsedInstruction,
 } from '@/app/lib/agent/types';
 import { geminiGenerateJson, stripJsonFence } from '@/app/lib/agent/gemini-json';
+import { normalizeLpUiCopyPatch } from '@/app/lib/agent/normalizeLpCopy';
 
 const LP_UI_COPY_KEYS = new Set<string>([
   'headline',
@@ -172,7 +173,9 @@ ${patLine}
 - problems_bullets / diagnosis_check_items は文字列配列（最大3件）。
 - 競合サイトの文をそのまま使わない。抽象パターンは「強弱」の参考だけ。
 - アンケートに無い数字・保証・料金の断定は書かない。
-- 日本語。値は短く具体的に。`;
+- 日本語。値は短く具体的に。
+- 指定の【地域】【サービス】【訴求モード】に合う自然なランディング向きの文にすること。運用指示の貼り付け（「1LP」「価格訴求になります」など）にしないこと。
+- {{...}} 形式のプレースホルダや、設定用の仮文は出力に含めないこと。`;
 
   const raw = await geminiGenerateJson(prompt);
   if (raw) {
@@ -188,12 +191,20 @@ ${patLine}
   }
 
   console.error('[agent] applyEnhancement: static fallback');
-  return staticFallback(input);
+  return normalizeLpUiCopyPatch(staticFallback(input), {
+    area: input.parsed.area,
+    service: input.parsed.service,
+    keyword: input.themeTitle,
+  });
 }
 
 /** Gemini なしの訴求モード別下地（公開 /p プレビューと applyEnhancement 失敗時と共用） */
 export function buildAgentModeStaticUiCopyPatch(
   input: ApplyEnhancementInput,
 ): Partial<LpUiCopy> {
-  return staticFallback(input);
+  return normalizeLpUiCopyPatch(staticFallback(input), {
+    area: input.parsed.area,
+    service: input.parsed.service,
+    keyword: input.themeTitle,
+  });
 }

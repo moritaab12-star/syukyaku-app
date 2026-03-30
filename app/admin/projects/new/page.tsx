@@ -22,7 +22,15 @@ import {
   SPLIT_QUESTIONS,
   getInitialRawAnswers,
   rawAnswersJsonToRecord,
+  isLocalFieldworkRequiredQ,
 } from './questions';
+import {
+  LOCAL_REQUIRED_FIELDWORK_Q_IDS,
+  REQUIRED_LOCAL_Q_ERROR_MESSAGES,
+} from '@/app/config/local-required-questions';
+import { isEffectivelyEmptyRawAnswer } from '@/app/lib/agent/validateRequiredRawAnswers';
+import { resolveLpIndustryTone } from '@/app/lib/lp-industry';
+import { normalizeServiceName } from '@/app/lib/agent/normalize-service';
 import { AgentInstructionInput } from './AgentInstructionInput';
 import type { PublishTestFocusProject } from './publish-test-types';
 import type { ParsedInstruction } from '@/app/lib/agent/types';
@@ -62,7 +70,9 @@ function NewProjectPageContent() {
   const [rawAnswers, setRawAnswers] = useState<Record<string, string>>(
     getInitialRawAnswers,
   );
-  const [openBlock, setOpenBlock] = useState<number | null>(null);
+  const [optionalOpenBlock, setOptionalOpenBlock] = useState<number | null>(
+    null,
+  );
   const [targetAreas, setTargetAreas] = useState('');
   const [targetServices, setTargetServices] = useState('');
   /** 関連LP「あわせて読みたい」用。任意。DB projects.industry_key */
@@ -231,7 +241,7 @@ function NewProjectPageContent() {
           closed_days:
             typeof info.closed_days === 'string' ? info.closed_days : '',
         });
-        setOpenBlock(null);
+        setOptionalOpenBlock(null);
         const pid = typeof p.id === 'string' ? p.id : editId;
         setEditPublishContext({
           projectId: pid,
@@ -345,7 +355,7 @@ function NewProjectPageContent() {
           closed_days:
             typeof info.closed_days === 'string' ? info.closed_days : '',
         });
-        setOpenBlock(null);
+        setOptionalOpenBlock(null);
 
         const baseVs =
           typeof p.variation_seed === 'number' &&
@@ -919,6 +929,21 @@ function NewProjectPageContent() {
 
   const handleSubmitLocal = async (e: React.FormEvent) => {
     e.preventDefault();
+    const built = buildLocalSavePayload();
+    const industryKeyNorm = industryKey.trim() || null;
+    const svcNorm = normalizeServiceName(
+      built.serviceForPublishPreset?.trim() ?? '',
+    );
+    if (resolveLpIndustryTone(industryKeyNorm, svcNorm) !== 'real_estate') {
+      for (const qid of LOCAL_REQUIRED_FIELDWORK_Q_IDS) {
+        const v = (rawAnswers[qid] ?? '').trim();
+        if (isEffectivelyEmptyRawAnswer(v)) {
+          showToast('error', REQUIRED_LOCAL_Q_ERROR_MESSAGES[qid]);
+          return;
+        }
+      }
+    }
+
     const {
       rawAnswersPayload,
       companyName,
@@ -927,7 +952,7 @@ function NewProjectPageContent() {
       serviceInput,
       serviceForPublishPreset,
       companyInfoPayload,
-    } = buildLocalSavePayload();
+    } = built;
 
     const status = 'draft';
 
@@ -1421,128 +1446,235 @@ function NewProjectPageContent() {
           </div>
           )}
 
-          {projectType === 'local' && (
-            <section className="mb-8 rounded-2xl border border-sky-500/30 bg-sky-950/20 p-5">
-              <h2 className="mb-3 text-sm font-semibold text-sky-200">
-                エリア×サービス（このプロジェクトの表示用）
-              </h2>
-              <p className="mb-4 text-xs text-slate-400">
-                {isEditMode
-                  ? 'LP のエリア・業種表示に使われます。保存すると DB の area / service / areas も更新されます。'
-                  : '複数指定すると、組み合わせごとに別プロジェクトが生成されます。'}
-              </p>
-              <div className="grid gap-4 md:grid-cols-2">
-                {SPLIT_QUESTIONS.map(({ id, label, placeholder }) => (
-                  <div key={id} className="space-y-2">
-                    <label className={labelClass}>{label}</label>
-                    <input
-                      type="text"
-                      value={id === 'target_areas' ? targetAreas : targetServices}
-                      onChange={(e) =>
-                        id === 'target_areas'
-                          ? setTargetAreas(e.target.value)
-                          : setTargetServices(e.target.value)
-                      }
-                      placeholder={placeholder}
-                      className={inputClass}
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 space-y-2">
-                <label className={labelClass}>
-                  業種キー（任意・関連LP用）
-                </label>
-                <input
-                  type="text"
-                  value={industryKey}
-                  onChange={(e) => setIndustryKey(e.target.value)}
-                  placeholder="例: garden / insurance / roof（空欄なら service のみで関連を判定）"
-                  className={inputClass}
-                />
-                <p className="text-xs text-slate-500">
-                  「あわせて読みたい」に載せる公開LPを業種ごとに分けたいとき、同じ略号を入れた行同士だけが関連候補になります。両方に値がある場合のみ一致が必須です。
-                </p>
-              </div>
-            </section>
-          )}
-
           {projectType === 'local' ? (
             <>
             <form onSubmit={handleSubmitLocal} className="space-y-4">
-              <details className="rounded-2xl border border-slate-800 bg-slate-900/40">
-                <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 font-semibold text-slate-100 outline-none hover:bg-slate-800/50 [&::-webkit-details-marker]:hidden">
-                  <span>詳細（50問）</span>
-                  <ChevronDown className="h-5 w-5 shrink-0 text-slate-400" />
-                </summary>
-                <div className="space-y-4 border-t border-slate-800 p-3 sm:p-4">
-                  {LOCAL_QUESTION_BLOCKS.map((block, blockIndex) => (
-                    <div
-                      key={blockIndex}
-                      className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60"
-                    >
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setOpenBlock(openBlock === blockIndex ? null : blockIndex)
-                        }
-                        className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-slate-800/60"
+              <section className="rounded-2xl border border-amber-500/35 bg-amber-950/15 p-5">
+                <h2 className="mb-2 text-sm font-semibold text-amber-100">
+                  必須項目（CVに直結・15問）
+                </h2>
+                <p className="mb-4 text-xs text-slate-400">
+                  現場系ローカルLPの公開前チェックに使います。業種キーが不動産トーン（
+                  real_estate）のときはこの必須チェックをスキップします（別セットは今後）。
+                </p>
+                <div className="space-y-6">
+                  {LOCAL_QUESTION_BLOCKS.map((block, blockIndex) => {
+                    const reqQs = block.questions.filter((q) =>
+                      isLocalFieldworkRequiredQ(q.id),
+                    );
+                    if (reqQs.length === 0) return null;
+                    return (
+                      <div
+                        key={`req-b-${blockIndex}`}
+                        className="rounded-xl border border-slate-800 bg-slate-900/55 p-4"
                       >
-                        <span className="font-semibold text-slate-100">
-                          ブロック{blockIndex + 1}：{block.title}
-                        </span>
-                        {openBlock === blockIndex ? (
-                          <ChevronUp className="h-5 w-5 text-slate-400" />
-                        ) : (
-                          <ChevronDown className="h-5 w-5 text-slate-400" />
-                        )}
-                      </button>
-                      {openBlock === blockIndex && (
-                        <div className="space-y-4 border-t border-slate-800 p-5">
-                          {block.questions.map(({ id, label }) => (
-                            <div key={id} className="space-y-2">
-                              <label className={labelClass}>
-                                {label}
-                              </label>
-                              <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                                <textarea
-                                  value={rawAnswers[id] ?? ''}
-                                  onChange={(e) => setAnswer(id, e.target.value)}
-                                  placeholder={`例：${label}について入力`}
-                                  rows={3}
-                                  className={`${inputClass} min-h-[5rem] flex-1`}
-                                />
-                                <div className="flex shrink-0 flex-col gap-1.5 sm:w-[8.5rem]">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleSuggestAnswer(id, label, 'fill')
+                        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-sky-200/90">
+                          {block.title}
+                        </h3>
+                        <div className="space-y-4">
+                          {reqQs.map((q) => {
+                            const empty = isEffectivelyEmptyRawAnswer(
+                              rawAnswers[q.id] ?? '',
+                            );
+                            return (
+                              <div key={q.id} className="space-y-2">
+                                <label
+                                  className={`${labelClass} flex flex-wrap items-center gap-2`}
+                                >
+                                  <span className="rounded bg-amber-500/25 px-1.5 py-0.5 text-[10px] font-bold text-amber-100">
+                                    必須
+                                  </span>
+                                  {q.label}
+                                </label>
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                                  <textarea
+                                    value={rawAnswers[q.id] ?? ''}
+                                    onChange={(e) => setAnswer(q.id, e.target.value)}
+                                    placeholder={
+                                      q.placeholder ?? `「${q.label.slice(0, 24)}…」について`
                                     }
-                                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/50 bg-amber-950/40 px-3 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-900/50"
-                                    title="空欄なら挿入。入力済みの場合は確認後に上書き"
-                                  >
-                                    <Sparkles className="h-3.5 w-3.5" />
-                                    自動生成
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleSuggestAnswer(id, label, 'regenerate')
-                                    }
-                                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-600 bg-slate-800/80 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-slate-700"
-                                    title="別の言い回しで上書き"
-                                  >
-                                    <RefreshCw className="h-3.5 w-3.5" />
-                                    再生成
-                                  </button>
+                                    rows={3}
+                                    className={`${inputClass} min-h-[5rem] flex-1 ${
+                                      empty
+                                        ? 'ring-1 ring-amber-500/40'
+                                        : ''
+                                    }`}
+                                  />
+                                  <div className="flex shrink-0 flex-col gap-1.5 sm:w-[8.5rem]">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleSuggestAnswer(q.id, q.label, 'fill')
+                                      }
+                                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/50 bg-amber-950/40 px-3 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-900/50"
+                                      title="空欄なら挿入。入力済みの場合は確認後に上書き"
+                                    >
+                                      <Sparkles className="h-3.5 w-3.5" />
+                                      自動生成
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleSuggestAnswer(
+                                          q.id,
+                                          q.label,
+                                          'regenerate',
+                                        )
+                                      }
+                                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-600 bg-slate-800/80 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-slate-700"
+                                      title="別の言い回しで上書き"
+                                    >
+                                      <RefreshCw className="h-3.5 w-3.5" />
+                                      再生成
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
-                      )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <details className="rounded-2xl border border-slate-800 bg-slate-900/40">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 font-semibold text-slate-100 outline-none hover:bg-slate-800/50 [&::-webkit-details-marker]:hidden">
+                  <span>追加で強くしたい項目（任意）・エリア分割</span>
+                  <ChevronDown className="h-5 w-5 shrink-0 text-slate-400" />
+                </summary>
+                <div className="space-y-6 border-t border-slate-800 p-3 sm:p-4">
+                  <div className="rounded-xl border border-sky-500/25 bg-sky-950/20 p-4">
+                    <h3 className="mb-3 text-xs font-semibold text-sky-200">
+                      LPの表示・分割用（任意）
+                    </h3>
+                    <p className="mb-4 text-xs text-slate-400">
+                      {isEditMode
+                        ? 'LP のエリア・業種表示に使われます。保存で DB の area / service / areas も更新されます。'
+                        : '複数指定すると組み合わせごとに別プロジェクトが生成される場合があります。'}
+                    </p>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {SPLIT_QUESTIONS.map(({ id, label, placeholder }) => (
+                        <div key={id} className="space-y-2">
+                          <label className={labelClass}>{label}</label>
+                          <input
+                            type="text"
+                            value={
+                              id === 'target_areas' ? targetAreas : targetServices
+                            }
+                            onChange={(e) =>
+                              id === 'target_areas'
+                                ? setTargetAreas(e.target.value)
+                                : setTargetServices(e.target.value)
+                            }
+                            placeholder={placeholder}
+                            className={inputClass}
+                          />
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                    <div className="mt-4 space-y-2">
+                      <label className={labelClass}>
+                        業種キー（任意・関連LP用）
+                      </label>
+                      <input
+                        type="text"
+                        value={industryKey}
+                        onChange={(e) => setIndustryKey(e.target.value)}
+                        placeholder="例: garden / roof / real_estate（空欄なら service のみで関連を判定）"
+                        className={inputClass}
+                      />
+                      <p className="text-xs text-slate-500">
+                        公開LPの関連候補を分けたいときに使用。不動産トーンを付けると下記必須15チェックは保存時・公開時にスキップされます。
+                      </p>
+                    </div>
+                  </div>
+
+                  {LOCAL_QUESTION_BLOCKS.map((block, blockIndex) => {
+                    const optQs = block.questions.filter(
+                      (q) => !isLocalFieldworkRequiredQ(q.id),
+                    );
+                    if (optQs.length === 0) return null;
+                    return (
+                      <div
+                        key={`opt-${blockIndex}`}
+                        className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60"
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOptionalOpenBlock(
+                              optionalOpenBlock === blockIndex
+                                ? null
+                                : blockIndex,
+                            )
+                          }
+                          className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-slate-800/60"
+                        >
+                          <span className="font-semibold text-slate-100">
+                            ブロック{blockIndex + 1}（任意）：{block.title}
+                          </span>
+                          {optionalOpenBlock === blockIndex ? (
+                            <ChevronUp className="h-5 w-5 text-slate-400" />
+                          ) : (
+                            <ChevronDown className="h-5 w-5 text-slate-400" />
+                          )}
+                        </button>
+                        {optionalOpenBlock === blockIndex && (
+                          <div className="space-y-4 border-t border-slate-800 p-5">
+                            {optQs.map((q) => (
+                              <div key={q.id} className="space-y-2">
+                                <label className={labelClass}>{q.label}</label>
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                                  <textarea
+                                    value={rawAnswers[q.id] ?? ''}
+                                    onChange={(e) =>
+                                      setAnswer(q.id, e.target.value)
+                                    }
+                                    placeholder={
+                                      q.placeholder ??
+                                      `「${q.label.slice(0, 24)}…」について`
+                                    }
+                                    rows={3}
+                                    className={`${inputClass} min-h-[5rem] flex-1`}
+                                  />
+                                  <div className="flex shrink-0 flex-col gap-1.5 sm:w-[8.5rem]">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleSuggestAnswer(q.id, q.label, 'fill')
+                                      }
+                                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/50 bg-amber-950/40 px-3 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-900/50"
+                                      title="空欄なら挿入。入力済みの場合は確認後に上書き"
+                                    >
+                                      <Sparkles className="h-3.5 w-3.5" />
+                                      自動生成
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleSuggestAnswer(
+                                          q.id,
+                                          q.label,
+                                          'regenerate',
+                                        )
+                                      }
+                                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-600 bg-slate-800/80 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-slate-700"
+                                      title="別の言い回しで上書き"
+                                    >
+                                      <RefreshCw className="h-3.5 w-3.5" />
+                                      再生成
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </details>
               <div className="flex flex-col items-end gap-2 pt-4 sm:flex-row sm:justify-end">

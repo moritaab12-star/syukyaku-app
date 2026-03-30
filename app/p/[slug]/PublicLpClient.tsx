@@ -12,6 +12,10 @@ import { buildAgentModeStaticUiCopyPatch } from '@/app/lib/agent/applyEnhancemen
 import type { CompanyInfoDisplay } from '@/app/lib/companyInfoFormatter';
 import { buildLpHtmlMarkup } from '@/app/lib/lpToHtmlCore';
 import {
+  lpDesignTokensToBodyClasses,
+  resolveLpDesignLayer,
+} from '@/app/lib/lp-design-layer';
+import {
   fetchRelatedProjectRows,
   buildAnchorTitle,
   type RelatedLink,
@@ -76,6 +80,7 @@ export type PublicLpProjectRow = {
   fv_catch_subheadline?: string | null;
   lp_ui_copy?: unknown;
   mode?: string | null;
+  lp_design?: unknown;
 };
 
 export type PublicLpClientProps = {
@@ -199,6 +204,20 @@ export function PublicLpClient({
     );
   }, []);
 
+  const lpBodyClassName = useMemo(() => {
+    if (!project) return 'lp-body';
+    const vs =
+      typeof project.variation_seed === 'number' &&
+      Number.isFinite(project.variation_seed)
+        ? Math.trunc(project.variation_seed)
+        : 0;
+    const layer = resolveLpDesignLayer({
+      lpDesignJson: project.lp_design,
+      variationSeed: vs,
+    });
+    return ['lp-body', ...lpDesignTokensToBodyClasses(layer.tokens)].join(' ');
+  }, [project]);
+
   const lpPreviewInnerHtml = useMemo(() => {
     if (!project || !view || !company) return '';
     const diagnosisModeTitle =
@@ -206,6 +225,15 @@ export function PublicLpClient({
         ? '3つ当てはまったら早めの診断をおすすめします'
         : 'まずは無料相談からはじめませんか？';
     const uiCopy = buildPreviewLpUiCopy(project);
+    const vs =
+      typeof project.variation_seed === 'number' &&
+      Number.isFinite(project.variation_seed)
+        ? Math.trunc(project.variation_seed)
+        : 0;
+    const designLayer = resolveLpDesignLayer({
+      lpDesignJson: project.lp_design,
+      variationSeed: vs,
+    });
     try {
       const { jsonLdScript, bodyInner } = buildLpHtmlMarkup({
         view,
@@ -215,6 +243,7 @@ export function PublicLpClient({
         pageUrl: previewPageUrl,
         heroImageUrl: project.hero_image_url ?? null,
         uiCopy,
+        designLayer,
       });
       return `${jsonLdScript}\n${bodyInner}`;
     } catch (e) {
@@ -255,7 +284,7 @@ export function PublicLpClient({
   }
 
   return (
-    <div className="lp-body">
+    <div className={lpBodyClassName}>
       <div dangerouslySetInnerHTML={{ __html: lpPreviewInnerHtml }} />
     </div>
   );
