@@ -18,9 +18,22 @@ export function deriveFallbackDesignSurface(
           ? 'warm_friendly'
           : 'trust_neutral';
 
+  const rng = mulberry32((seed ^ 0xdeadbeef) >>> 0);
+  const ctaShape: LpDesignTokens['ctaShape'] =
+    strategy.tone === 'pop'
+      ? rng() < 0.62
+        ? 'pill'
+        : 'default'
+      : strategy.tone === 'friendly'
+        ? rng() < 0.42
+          ? 'pill'
+          : 'default'
+        : 'default';
+
   const tokensBase: LpDesignTokens = {
     ...FALLBACK_DESIGN_TOKENS,
     themeKey,
+    ctaShape,
     shadow:
       strategy.visualLevel === 'strong'
         ? 'elevated'
@@ -34,8 +47,6 @@ export function deriveFallbackDesignSurface(
   };
 
   const tokens = tokensBase;
-
-  const rng = mulberry32((seed ^ 0xdeadbeef) >>> 0);
   const diagram_flags: LpDiagramFlags = { ...FALLBACK_DIAGRAM_FLAGS };
 
   if (strategy.informationDensity === 'high') {

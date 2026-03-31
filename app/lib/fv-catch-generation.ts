@@ -11,6 +11,7 @@ import {
 import { buildLpPackSurveyContext } from '@/app/lib/raw-answer-suggest';
 import { generateLpUiCopyPackWithGemini } from '@/app/lib/gemini-lp-ui-copy-pack';
 import { lpUiCopyHeadlineFromRow, parseLpUiCopy } from '@/app/lib/lp-ui-copy';
+import { syncLpDesignForProject } from '@/app/lib/lp-design-sync';
 
 type ProjectRow = {
   id: string;
@@ -143,6 +144,15 @@ export async function runFvCatchForProject(
 
   if (updErr) {
     return { ok: false, error: updErr.message };
+  }
+
+  try {
+    const designRes = await syncLpDesignForProject(supabase, projectId);
+    if (designRes.ok === false) {
+      console.warn('[fv-catch] lp_design sync', projectId, designRes.error);
+    }
+  } catch (e) {
+    console.warn('[fv-catch] lp_design sync exception', projectId, e);
   }
 
   return {

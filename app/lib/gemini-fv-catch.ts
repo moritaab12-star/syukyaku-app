@@ -7,6 +7,11 @@ import {
   lpAppealAngleMeaningJa,
   resolveLpAppealAngle,
 } from '@/app/lib/lp-copy-appeal-angle';
+import { buildServiceGroundingRulesForPrompt } from '@/app/lib/lp-copy-service-grounding';
+import {
+  formatValidationRepairHint,
+  validateFvCatch,
+} from '@/app/lib/lp-copy-output-validate';
 
 const MODEL =
   process.env.GEMINI_FV_CATCH_MODEL?.trim() ||
@@ -77,6 +82,8 @@ ${instr}
 【対応サービス・業種の原文（LP用 target_services / DB service。業種判断の最優先。カンマ区切りもそのまま）】
 ${service}
 
+${buildServiceGroundingRulesForPrompt(service)}
+
 【補助メタ（上書きしない）】
 - 地域（必要なら1回だけ触れる程度。多用しない）: ${area}
 - 業種キー（補助）: ${ik}
@@ -89,7 +96,7 @@ ${editorBlock}
 - 角度の意味: ${lpAppealAngleMeaningJa(angle)}
 - 選んだ角度を出力には書かない（内部だけ）。
 
-【アンケート回答からの要約（事実優先。ここにない事実は捏造しない）】
+【アンケート（事実優先。未記入の事実は作らず、語彙はサービス原文の業種に合わせる）】
 ${qa}
 
 【同一グループ内の既存LPの見出し（参考・禁止寄り）】
@@ -102,18 +109,19 @@ ${existing}
 
 【絶対ルール】
 1. 出力は日本語。JSON のみ（説明・マークダウン禁止）。
-2. headline: 全角換算でおおよそ 18〜28 文字。句読点は原則使わないか最小限。
-3. subheadline: 2〜3文、です・ます調。具体性はあるが、未入力の数値実績や保証内容を作らない。
-4. 文字列「${area}」「${service}」は、headline と subheadline を合わせて **それぞれ最大1回まで**（headline に地名を入れたら subheadline では地名を使わない、など重複を避ける）。
+2. headline: 全角換算でおおよそ 18〜28 文字。句読点は原則使わないか最小限。**サービス原文の業務語を最低1つ含める**（原文に無い業種語は禁止）。
+3. subheadline: 2〜3文、です・ます調。具体性はあるが、未入力の数値実績や保証内容を作らない。**抽象語だけで埋めず、原文の業種に即した悩み・状況に触れる**。
+4. 文字列「${area}」「全文のservice欄のうち主要語1つ」相当は、headline と subheadline を合わせて **地名は最大1回**、**service の語は重複しすぎないよう自然に**（headline に業務語があれば subheadline は別の角度でもよい）。
 5. 既存見出し一覧と **明らかにツインの文**にならないこと（類題なら構造か訴求角度を変える）。
+6. 「地域密着」「お困りごと」「お気軽に」**のみ**で構成した見出し・リードは禁止。
 
 【出力形式】
 {"headline":"……","subheadline":"……"}`;
 }
 
-export async function generateFvCatchWithGemini(
-  input: GeminiFvCatchInput,
-): Promise<FvCatchResult | null> {
+const FV_MAX_VALIDATION_ATTEMPTS = 3;
+
+async function fetchFvCatchRaw(userText: string): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) return null;
 
@@ -125,9 +133,9 @@ export async function generateFvCatchWithGemini(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: buildUserPrompt(input) }] }],
+      contents: [{ parts: [{ text: userText }] }],
       generationConfig: {
-        temperature: 0.65,
+        temperature: 0.55,
         maxOutputTokens: 1024,
         responseMimeType: 'application/json',
       },
@@ -147,21 +155,53 @@ export async function generateFvCatchWithGemini(
   const data = (await res.json()) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
   };
-  const raw =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
-  if (!raw) return null;
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? null;
+}
 
-  try {
-    const parsed = JSON.parse(stripJsonFence(raw)) as {
-      headline?: string;
-      subheadline?: string;
-    };
-    const headline = (parsed.headline ?? '').toString().trim();
-    const subheadline = (parsed.subheadline ?? '').toString().trim();
-    if (!headline || !subheadline) return null;
-    return { headline, subheadline };
-  } catch {
-    console.error('[gemini-fv-catch] JSON parse failed', raw.slice(0, 200));
-    return null;
+export async function generateFvCatchWithGemini(
+  input: GeminiFvCatchInput,
+): Promise<FvCatchResult | null> {
+  const basePrompt = buildUserPrompt(input);
+  let lastOk: FvCatchResult | null = null;
+  let lastReasons: string[] = [];
+
+  for (let attempt = 0; attempt < FV_MAX_VALIDATION_ATTEMPTS; attempt++) {
+    const repair =
+      attempt === 0
+        ? ''
+        : `\n\n${formatValidationRepairHint(lastReasons)}\n\n【不合格だった直前のJSON】\n${JSON.stringify(lastOk).slice(0, 800)}`;
+    const raw = await fetchFvCatchRaw(basePrompt + repair);
+    if (!raw) return lastOk;
+
+    try {
+      const parsed = JSON.parse(stripJsonFence(raw)) as {
+        headline?: string;
+        subheadline?: string;
+      };
+      const headline = (parsed.headline ?? '').toString().trim();
+      const subheadline = (parsed.subheadline ?? '').toString().trim();
+      if (!headline || !subheadline) continue;
+      const result = { headline, subheadline };
+      lastOk = result;
+      const v = validateFvCatch(input.service, headline, subheadline);
+      if (v.ok) return result;
+      lastReasons = v.reasons;
+      console.warn(
+        '[gemini-fv-catch] validation',
+        attempt + 1,
+        v.reasons.join(' | '),
+      );
+    } catch {
+      console.error('[gemini-fv-catch] JSON parse failed', raw.slice(0, 200));
+    }
   }
+
+  if (lastOk) {
+    console.warn(
+      '[gemini-fv-catch] using last output after failed validation',
+      lastReasons.join(' | '),
+    );
+    return lastOk;
+  }
+  return null;
 }

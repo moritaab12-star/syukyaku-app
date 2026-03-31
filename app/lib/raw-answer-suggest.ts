@@ -183,8 +183,13 @@ export function buildLpPackSurveyContext(
     lines.push(line);
     total += line.length + 1;
   }
-  if (lines.length === 0) return '';
-  return `【アンケート50問（q1〜q50・入力済みのみ）】\n${lines.join('\n')}`;
+  const priorityNote =
+    '【アンケートの扱い】具体的事実・数値・固有名は「入力済みの設問」のみを根拠にする。未記入の内容は捏造せず、**語彙とトピックはサービス原文の業種に合わせた一般論**で補完する。\n\n';
+
+  if (lines.length === 0) {
+    return `${priorityNote}（入力済みの設問はありません。全フィールドでサービス原文に即した表現のみ用いよ。事実の断定はしない。）`;
+  }
+  return `${priorityNote}【アンケート50問（q1〜q50・入力済みのみ）】\n${lines.join('\n')}`;
 }
 
 /** @deprecated 推定ロジックは `resolveLpIndustryTone` に集約済み */

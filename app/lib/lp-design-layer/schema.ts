@@ -19,6 +19,8 @@ export const LpDesignTokensSchema = z.object({
   shadow: z.enum(['none', 'soft', 'elevated']),
   iconSet: z.enum(['outline', 'filled', 'minimal_line']),
   surfaceContrast: z.enum(['low', 'medium', 'high']),
+  /** CTA の外形。既存 JSON に無い場合は default として扱う */
+  ctaShape: z.enum(['default', 'pill']).optional(),
 });
 
 export type LpDesignTokens = z.infer<typeof LpDesignTokensSchema>;
@@ -57,6 +59,7 @@ export const FALLBACK_DESIGN_TOKENS: LpDesignTokens = {
   shadow: 'soft',
   iconSet: 'outline',
   surfaceContrast: 'medium',
+  ctaShape: 'default',
 };
 
 export const FALLBACK_DIAGRAM_FLAGS: LpDiagramFlags = {

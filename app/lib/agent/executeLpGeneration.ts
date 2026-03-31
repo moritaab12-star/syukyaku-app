@@ -17,7 +17,7 @@ import {
 import { normalizeLpUiCopyRecord } from '@/app/lib/agent/normalizeLpCopy';
 import { normalizeServiceName } from '@/app/lib/agent/normalize-service';
 import { resolveLpTemplateRow } from '@/app/lib/agent/resolve-template-row';
-import { generateLpDesignRowForProject } from '@/app/lib/lp-design-layer/generate-with-gemini';
+import { syncLpDesignForProject } from '@/app/lib/lp-design-sync';
 
 function deepClone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -218,6 +218,7 @@ export async function executeLpGeneration(
       mode,
       research_used: researchUsed,
       lp_ui_copy: lpUiMerged,
+      lp_editor_instruction: designInstruction.slice(0, 12000),
     };
 
     const { data: ins, error: insErr } = await supabase
@@ -232,21 +233,12 @@ export async function executeLpGeneration(
     }
 
     try {
-      const lpDesign = await generateLpDesignRowForProject({
-        instruction: designInstruction,
-        service: serviceVal ?? '',
-        rawAnswers,
-        variationSeed: i,
-      });
-      const { error: dErr } = await supabase
-        .from('projects')
-        .update({ lp_design: lpDesign })
-        .eq('id', ins.id);
-      if (dErr) {
-        console.error('[agent] lp_design update', ins.id, dErr.message);
+      const dRes = await syncLpDesignForProject(supabase, ins.id as string);
+      if (dRes.ok === false) {
+        console.error('[agent] lp_design sync', ins.id, dRes.error);
       }
     } catch (e) {
-      console.error('[agent] lp_design generation', ins.id, e);
+      console.error('[agent] lp_design sync', ins.id, e);
     }
 
     created.push({

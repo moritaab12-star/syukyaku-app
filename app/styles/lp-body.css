@@ -316,6 +316,12 @@
   box-shadow: var(--lp-shadow);
 }
 
+.lp-body.lp-body--cta-pill .lp-btn {
+  border-radius: 9999px;
+  padding-left: 1.35rem;
+  padding-right: 1.35rem;
+}
+
 /* ----- Lists ----- */
 .lp-body .lp-list {
   margin: 0;

@@ -7,6 +7,11 @@ import {
   lpAppealAngleMeaningJa,
   resolveLpAppealAngle,
 } from '@/app/lib/lp-copy-appeal-angle';
+import { buildServiceGroundingRulesForPrompt } from '@/app/lib/lp-copy-service-grounding';
+import {
+  formatValidationRepairHint,
+  validateLpUiCopyPack,
+} from '@/app/lib/lp-copy-output-validate';
 
 const MODEL =
   process.env.GEMINI_LP_UI_COPY_MODEL?.trim() ||
@@ -63,6 +68,8 @@ ${instr}
 【対応サービス・業種の原文（フォームの target_services / DB の service。業種・何屋か・メニュー判断の最優先。カンマ区切りも含めてそのまま読む）】
 ${service}
 
+${buildServiceGroundingRulesForPrompt(service)}
+
 【補助メタ（サービス原文と矛盾させない）】
 - 地域（多用しない。各フィールドで重複させない）: ${area}
 - 業種キー（補助）: ${ik}
@@ -73,7 +80,7 @@ ${editorBlock}
 - variation_seed: ${seed}
 - 採用角度「${angle}」${angleSourceNote} を全体のトーンに反映: ${lpAppealAngleMeaningJa(angle)}
 
-【アンケート50問（事実・アンカー。ここにない具体的事実は断定しない）】
+【アンケート（事実・アンカー。未記入分はサービス原文に即した語で補い、事実の捏造はしない）】
 ${qa}
 
 【同一グループの既存 headline（似せない）】
@@ -81,15 +88,16 @@ ${existing}
 
 【ルール】
 1. 出力は **有効なJSONのみ**（前後に説明禁止）。
-2. headline: 全角18〜28文字目安。subheadline: 2〜3文・ですます。
+2. headline: 全角18〜28文字目安。subheadline: 2〜3文・ですます。**いずれもサービス原文の業務語を最低1つ含める**（原文に無い業種語は禁止）。
 3. CTAは押し売り感が強すぎない。電話版・Web版で文言を変える。
-4. problems_bullets / diagnosis_check_items は **文字列ちょうど3要素の配列**。
-5. 地域名は全体を通じ **2回以内** を目安。サービス表現は原文の語を活かしつつ自然な回数に抑える。
+4. problems_bullets / diagnosis_check_items は **文字列ちょうど3要素の配列**。各要素に **サービス原文に由来する語**を含める。
+5. 地域名は全体を通じ **2回以内** を目安。サービス表現は原文の語をそのまままたは自然な短縮で活かす。
 6. 未入力の数値実績・保証の断定はしない。
+7. trust_inline_*, benefit_inline_*, cta_second_* も **汎用句の連載禁止**。原文の業種に即した内容にする。
 
 【必須キー一覧（すべて文字列または配列で出力）】
 - headline, subheadline
-- hero_badge_label （バッジ1行。例:「◯◯に根ざした□□サポート」— ◯◯は地域でも業種でもよいが冗長にしない）
+- hero_badge_label （バッジ1行。**サービス原文の語を必ず含む**。「地域密着〇〇」だけの抽象バッジにしない）
 - hero_cta_primary_phone （「電話で〜」系・短く）
 - hero_cta_primary_web （「無料で相談〜」系）
 - hero_cta_note （ヒーロー直下の補足1文）
@@ -105,9 +113,11 @@ ${existing}
 JSONのキー名は上記スネークケースを厳守すること。`;
 }
 
-export async function generateLpUiCopyPackWithGemini(
-  input: LpUiCopyPackInput,
-): Promise<LpUiCopyPackResult | null> {
+const PACK_MAX_VALIDATION_ATTEMPTS = 3;
+
+async function fetchPackRawJson(
+  userText: string,
+): Promise<{ raw: string } | null> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) return null;
 
@@ -119,9 +129,9 @@ export async function generateLpUiCopyPackWithGemini(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: buildPackPrompt(input) }] }],
+      contents: [{ parts: [{ text: userText }] }],
       generationConfig: {
-        temperature: 0.65,
+        temperature: 0.52,
         maxOutputTokens: 4096,
         responseMimeType: 'application/json',
       },
@@ -144,13 +154,57 @@ export async function generateLpUiCopyPackWithGemini(
   const raw =
     data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
   if (!raw) return null;
+  return { raw };
+}
 
-  try {
-    const parsed = JSON.parse(stripJsonFence(raw)) as LpUiCopyPackResult;
-    if (!parsed || typeof parsed !== 'object') return null;
-    return parsed;
-  } catch {
-    console.error('[gemini-lp-ui-copy-pack] parse', raw.slice(0, 300));
-    return null;
+export async function generateLpUiCopyPackWithGemini(
+  input: LpUiCopyPackInput,
+): Promise<LpUiCopyPackResult | null> {
+  const basePrompt = buildPackPrompt(input);
+  let lastParsed: LpUiCopyPackResult | null = null;
+  let lastReasons: string[] = [];
+
+  for (let attempt = 0; attempt < PACK_MAX_VALIDATION_ATTEMPTS; attempt++) {
+    const repair =
+      attempt === 0
+        ? ''
+        : `\n\n${formatValidationRepairHint(lastReasons)}\n\n【不合格だった直前のJSON（表現を参考にしつつ修正・truncate可）】\n${JSON.stringify(lastParsed).slice(0, 1800)}`;
+    const userText = basePrompt + repair;
+
+    const got = await fetchPackRawJson(userText);
+    if (!got) return lastParsed;
+
+    try {
+      const parsed = JSON.parse(stripJsonFence(got.raw)) as LpUiCopyPackResult;
+      if (!parsed || typeof parsed !== 'object') {
+        console.error('[gemini-lp-ui-copy-pack] parse not object');
+        continue;
+      }
+      lastParsed = parsed;
+      const v = validateLpUiCopyPack(input.service, parsed);
+      if (v.ok) {
+        return parsed;
+      }
+      lastReasons = v.reasons;
+      console.warn(
+        '[gemini-lp-ui-copy-pack] validation',
+        attempt + 1,
+        v.reasons.join(' | '),
+      );
+    } catch {
+      console.error(
+        '[gemini-lp-ui-copy-pack] parse',
+        got.raw.slice(0, 300),
+      );
+    }
   }
+
+  if (lastParsed) {
+    console.warn(
+      '[gemini-lp-ui-copy-pack] using last output after failed validation',
+      lastReasons.join(' | '),
+    );
+    return lastParsed;
+  }
+  return null;
 }

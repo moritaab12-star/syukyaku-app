@@ -22,6 +22,7 @@ import {
   buildRawAnswersSummaryForDesign,
 } from '@/app/lib/lp-design-layer/raw-answers-helpers';
 import { deriveFallbackDesignSurface } from '@/app/lib/lp-design-layer/derive-fallback-surface';
+import { nudgeTokensAvoidFingerprints } from '@/app/lib/lp-design-layer/token-collision';
 
 const GeminiCall2Schema = z.object({
   design_tokens: LpDesignTokensSchema,
@@ -34,6 +35,14 @@ export type GenerateLpDesignRowInput = {
   service: string;
   rawAnswers: unknown;
   variationSeed: number;
+  /** 業種コンテキスト（design-context / lp-industry） */
+  industryContext?: string;
+  /** ターゲット層ヒント */
+  targetProfileContext?: string;
+  /** 同一グループ先行 LP の指紋テキスト */
+  siblingDesignContext?: string;
+  /** 衝突回避用・先行 LP の token 指紋 */
+  siblingTokenFingerprints?: Set<string>;
 };
 
 function parseJsonObject(raw: string | null): unknown {
@@ -61,10 +70,20 @@ export async function generateLpDesignRowForProject(
   const q33PriceSignal = computeQ33PriceSignal(q33);
   const rawAnswersSummary = buildRawAnswersSummaryForDesign(input.rawAnswers);
 
+  const fp = input.siblingTokenFingerprints;
+  const hasSiblings = fp != null && fp.size > 0;
+
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     const strategy = FALLBACK_DESIGN_STRATEGY;
-    const { tokens, diagram_flags } = deriveFallbackDesignSurface(strategy, seed);
+    const { tokens: t0, diagram_flags } = deriveFallbackDesignSurface(
+      strategy,
+      seed,
+    );
+    const tokens =
+      hasSiblings && fp
+        ? nudgeTokensAvoidFingerprints(t0, strategy, fp, seed)
+        : t0;
     return { strategy, tokens, diagram_flags, source: 'fallback' };
   }
 
@@ -75,6 +94,9 @@ export async function generateLpDesignRowForProject(
     q23Excerpt: q23.trim().slice(0, 800),
     q33Excerpt: q33.trim().slice(0, 800),
     q33PriceSignal,
+    industryContext: input.industryContext,
+    targetProfileContext: input.targetProfileContext,
+    siblingDesignContext: input.siblingDesignContext,
   });
 
   const raw1 = await geminiGenerateJsonWithSystem(
@@ -102,7 +124,11 @@ export async function generateLpDesignRowForProject(
   const call2 = GeminiCall2Schema.safeParse(obj2);
 
   if (!call2.success) {
-    const { tokens, diagram_flags } = deriveFallbackDesignSurface(strategy, seed);
+    const { tokens: t0, diagram_flags } = deriveFallbackDesignSurface(strategy, seed);
+    const tokens =
+      hasSiblings && fp
+        ? nudgeTokensAvoidFingerprints(t0, strategy, fp, seed)
+        : t0;
     return {
       strategy,
       tokens,
@@ -111,9 +137,14 @@ export async function generateLpDesignRowForProject(
     };
   }
 
+  let tokens = call2.data.design_tokens;
+  if (hasSiblings && fp) {
+    tokens = nudgeTokensAvoidFingerprints(tokens, strategy, fp, seed);
+  }
+
   return {
     strategy,
-    tokens: call2.data.design_tokens,
+    tokens,
     diagram_flags: call2.data.diagram_flags,
     source: 'ai',
   };

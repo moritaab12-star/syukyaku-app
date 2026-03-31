@@ -41,6 +41,12 @@ export type DesignStrategyPromptInput = {
   q23Excerpt: string;
   q33Excerpt: string;
   q33PriceSignal: Q33PriceSignal;
+  /** resolveLpIndustryTone 由来の短文（任意） */
+  industryContext?: string;
+  /** ターゲット層ヒント（任意） */
+  targetProfileContext?: string;
+  /** 同一グループ先行 LP の指紋テキスト（任意） */
+  siblingDesignContext?: string;
 };
 
 /**
@@ -55,6 +61,9 @@ export function buildDesignStrategyUserPrompt(input: DesignStrategyPromptInput):
     q23Excerpt,
     q33Excerpt,
     q33PriceSignal,
+    industryContext,
+    targetProfileContext,
+    siblingDesignContext,
   } = input;
 
   const head = `以下の入力から design_strategy の JSON を生成せよ。
@@ -96,6 +105,15 @@ instruction: `;
     q33Excerpt,
     '\n\nq33_price_signal: ',
     q33PriceSignal,
+    industryContext?.trim()
+      ? `\n\nindustryContext:\n${industryContext.trim()}`
+      : '',
+    targetProfileContext?.trim()
+      ? `\n\ntargetProfileContext:\n${targetProfileContext.trim()}`
+      : '',
+    siblingDesignContext?.trim()
+      ? `\n\n${siblingDesignContext.trim()}`
+      : '',
     '\n',
   ].join('');
 }
@@ -106,6 +124,7 @@ export type DesignTokensPromptInput = {
   variationSeed: number;
   q33PriceSignal: Q33PriceSignal;
   instruction: string;
+  siblingDesignContext?: string;
 };
 
 function formatDesignStrategyForPrompt(designStrategy: DesignStrategy | string): string {
@@ -118,7 +137,8 @@ function formatDesignStrategyForPrompt(designStrategy: DesignStrategy | string):
  * system には `DESIGN_STRATEGY_ASSISTANT_SYSTEM_PROMPT` を渡す。
  */
 export function buildDesignTokensUserPrompt(input: DesignTokensPromptInput): string {
-  const { designStrategy, variationSeed, q33PriceSignal, instruction } = input;
+  const { designStrategy, variationSeed, q33PriceSignal, instruction, siblingDesignContext } =
+    input;
   const strategyJson = formatDesignStrategyForPrompt(designStrategy);
   const seedText = String(variationSeed);
 
@@ -130,7 +150,8 @@ design_tokens（値は次の列挙のみ。自由文字列禁止）:
   "radius": "sm" | "md" | "lg",
   "shadow": "none" | "soft" | "elevated",
   "iconSet": "outline" | "filled" | "minimal_line",
-  "surfaceContrast": "low" | "medium" | "high"
+  "surfaceContrast": "low" | "medium" | "high",
+  "ctaShape": "default" | "pill"
 }
 
 diagram_flags:
@@ -145,7 +166,9 @@ diagram_flags:
 - 新セクションは作らない。フラグは「その位置に小ブロックを出すか」だけ。
 - informationDensity が high なら checklist か stats を true にしやすくする。low なら flow を優先しすぎない。
 - visualLevel が minimal なら shadow は none or soft、iconSet は minimal_line を優先。
-- variation_seed により、同等条件下でも themeKey/radius/iconSet の組み合わせに「わずかな揺らぎ」を入れる（同 seed では同じ結果）。
+- ctaShape: targetType young または tone pop/friendly なら pill を検討。luxury/trust かつ senior なら default 優先。
+- siblingDesignContext に先行 LP の theme/radius/icons の指紋がある場合、**同じ themeKey と radius と iconSet と ctaShape の4つ組**を避ける。
+- variation_seed により、同等条件下でも themeKey/radius/iconSet/ctaShape の組み合わせに「わずかな揺らぎ」を入れる（同 seed では同じ結果）。
 
 絶対に変えてはいけないもの（トークンに含めない・これらを上書きするキーは禁止）:
 - CTA の色仕様、フォントサイズ、最小余白（システム固定）
@@ -166,6 +189,7 @@ design_strategy: `;
     q33PriceSignal,
     '\n\ninstruction: ',
     instruction,
+    siblingDesignContext?.trim() ? `\n\n${siblingDesignContext.trim()}` : '',
     '\n',
   ].join('');
 }
