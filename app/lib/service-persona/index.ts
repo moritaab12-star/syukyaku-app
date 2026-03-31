@@ -13,6 +13,7 @@ export {
 export {
   buildServicePersonaPromptBlock,
   forbiddenPhrasesForValidation,
+  resolveEffectivePersonaForPrompt,
 } from '@/app/lib/service-persona/prompt-block';
 export type { ServicePersonaParsed } from '@/app/lib/service-persona/parse-db-row';
 export { assertIndustryKeyAllowedForLocalSave } from '@/app/lib/service-persona/save-gate';

@@ -12,6 +12,7 @@ import {
 } from '@/app/lib/service-persona/master-json-mapper';
 import { readMasterJsonTextFromBody } from '@/app/lib/service-persona/master-json-api';
 import { parseServicePersonaRow } from '@/app/lib/service-persona/parse-db-row';
+import { refreshLpUiCopyForIndustryKey } from '@/app/lib/fv-catch-generation';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -236,6 +237,9 @@ export async function PATCH(
       }
     }
 
+    void refreshLpUiCopyForIndustryKey(supabase, existing.service_key).catch(
+      (e) => console.error('[service-personas] dependent LP refresh', e),
+    );
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : '更新に失敗しました';

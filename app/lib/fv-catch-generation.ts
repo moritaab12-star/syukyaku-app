@@ -19,6 +19,7 @@ import {
 import {
   buildServicePersonaPromptBlock,
   forbiddenPhrasesForValidation,
+  resolveEffectivePersonaForPrompt,
 } from '@/app/lib/service-persona/prompt-block';
 
 type ProjectRow = {
@@ -129,8 +130,11 @@ export async function runFvCatchForProject(
 
   const tone = resolveLpIndustryTone(ik || null, service || 'サービス');
   let industryDescription = lpIndustryToneDescriptionForPrompt(tone);
-  if (persona?.tone?.trim()) {
-    industryDescription = `${industryDescription}\n【業種人格のトーン】${persona.tone.trim()}`;
+  if (persona) {
+    const effTone = resolveEffectivePersonaForPrompt(persona).tone;
+    if (effTone?.trim()) {
+      industryDescription = `${industryDescription}\n【業種人格のトーン】${effTone.trim()}`;
+    }
   }
 
   const servicePersonaBlock = buildServicePersonaPromptBlock(persona);
@@ -234,5 +238,80 @@ export async function runFvCatchForLpGroupMembersIfNeeded(
     if (res.ok === false) {
       console.error('[fv-catch] run failed', id, res.error);
     }
+  }
+}
+
+const LP_REFRESH_INDUSTRY_BATCH = 80;
+
+/**
+ * プロジェクト保存など: industry_key が変わったとき LP 一式を強制再生成（業種ルールの反映用）。
+ */
+export async function refreshLpCopyAfterIndustryKeyChange(
+  supabase: SupabaseClient,
+  projectId: string,
+  prevIndustryKey: string | null | undefined,
+  nextIndustryKey: string | null | undefined,
+): Promise<void> {
+  const prev = (typeof prevIndustryKey === 'string' ? prevIndustryKey : '').trim();
+  const next = (typeof nextIndustryKey === 'string' ? nextIndustryKey : '').trim();
+  if (prev === next) return;
+  if (!next) {
+    const active = await countActiveServicePersonas(supabase);
+    if (active > 0) {
+      console.warn(
+        '[fv-catch] skip LP refresh: industry_key cleared while personas exist',
+        projectId,
+      );
+      return;
+    }
+  }
+  const res = await runFvCatchForProject(supabase, projectId, { force: true });
+  if (res.ok === false) {
+    console.warn(
+      '[fv-catch] LP refresh after industry_key change failed',
+      projectId,
+      res.error,
+    );
+  }
+}
+
+/**
+ * 業種マスター保存後: 同一 industry_key のプロジェクトの lp_ui_copy を順次再生成（上限あり）。
+ */
+export async function refreshLpUiCopyForIndustryKey(
+  supabase: SupabaseClient,
+  serviceKey: string,
+): Promise<void> {
+  const k = serviceKey.trim();
+  if (!k) return;
+  const { data: rows, error } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('industry_key', k)
+    .limit(LP_REFRESH_INDUSTRY_BATCH);
+
+  if (error || !Array.isArray(rows)) {
+    console.error(
+      '[fv-catch] list projects by industry_key failed',
+      k,
+      error?.message,
+    );
+    return;
+  }
+
+  for (const r of rows) {
+    const id = typeof (r as { id?: string }).id === 'string' ? (r as { id: string }).id : '';
+    if (!id) continue;
+    const res = await runFvCatchForProject(supabase, id, { force: true });
+    if (res.ok === false) {
+      console.warn('[fv-catch] industry master refresh failed', id, res.error);
+    }
+  }
+  if (rows.length >= LP_REFRESH_INDUSTRY_BATCH) {
+    console.warn(
+      '[fv-catch] industry master refresh capped',
+      k,
+      LP_REFRESH_INDUSTRY_BATCH,
+    );
   }
 }

@@ -51,7 +51,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       skipped: true,
-      message: '既に fv_catch_headline があるためスキップしました（上書きは force: true）',
+      message:
+        '既に lp_ui_copy の headline があるためスキップしました。業種ルールを反映して再生成する場合は body に force: true を付けてください。',
     });
   }
 

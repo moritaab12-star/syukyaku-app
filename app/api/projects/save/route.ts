@@ -3,7 +3,10 @@ import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabase';
 import { detectSearchIntent } from '@/app/lib/intent';
 import { splitProjectsByAreaAndService } from '@/app/lib/projectSplit';
-import { runFvCatchForLpGroupMembersIfNeeded } from '@/app/lib/fv-catch-generation';
+import {
+  refreshLpCopyAfterIndustryKeyChange,
+  runFvCatchForLpGroupMembersIfNeeded,
+} from '@/app/lib/fv-catch-generation';
 import { normalizeServiceName } from '@/app/lib/agent/normalize-service';
 import { assertIndustryKeyAllowedForLocalSave } from '@/app/lib/service-persona/save-gate';
 
@@ -243,6 +246,12 @@ export async function POST(request: Request) {
         }
       }
 
+      try {
+        await runFvCatchForLpGroupMembersIfNeeded(supabase, lpGroupId);
+      } catch (e) {
+        console.error('[projects/save] multi split auto fv-catch', e);
+      }
+
       return NextResponse.json({
         success: true,
         slug: parentData.slug,
@@ -254,7 +263,7 @@ export async function POST(request: Request) {
 
     const { data: existingRow, error: existingErr } = await supabase
       .from('projects')
-      .select('id, publish_status, lp_group_id')
+      .select('id, publish_status, lp_group_id, industry_key')
       .eq('slug', slug)
       .maybeSingle();
 
@@ -312,6 +321,20 @@ export async function POST(request: Request) {
         );
       }
 
+      try {
+        const prevIk = normalizeIndustryKey(
+          (existingRow as { industry_key?: string | null } | null)?.industry_key,
+        );
+        await refreshLpCopyAfterIndustryKeyChange(
+          supabase,
+          existingRow.id,
+          prevIk,
+          industryKey,
+        );
+      } catch (e) {
+        console.error('[projects/save] refresh LP after industry change', e);
+      }
+
       return NextResponse.json({
         success: true,
         slug: data?.slug ?? slug,
@@ -365,6 +388,22 @@ export async function POST(request: Request) {
       await runFvCatchForLpGroupMembersIfNeeded(supabase, lpGroupId);
     } catch (e) {
       console.error('[projects/save] auto fv-catch', e);
+    }
+
+    if (data?.id) {
+      try {
+        const prevIk = normalizeIndustryKey(
+          (existingRow as { industry_key?: string | null } | null)?.industry_key,
+        );
+        await refreshLpCopyAfterIndustryKeyChange(
+          supabase,
+          data.id,
+          prevIk,
+          industryKey,
+        );
+      } catch (e) {
+        console.error('[projects/save] refresh LP after industry change', e);
+      }
     }
 
     return NextResponse.json({

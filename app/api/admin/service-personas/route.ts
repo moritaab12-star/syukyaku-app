@@ -12,6 +12,7 @@ import {
   listActiveServicePersonasForSelect,
   listAllServicePersonasOrdered,
 } from '@/app/lib/service-persona/db-server';
+import { refreshLpUiCopyForIndustryKey } from '@/app/lib/fv-catch-generation';
 
 export async function GET(request: Request) {
   try {
@@ -114,6 +115,13 @@ export async function POST(request: Request) {
         );
       }
 
+      const skFromMaster =
+        typeof pr.data.service_key === 'string' ? pr.data.service_key.trim() : '';
+      if (skFromMaster) {
+        void refreshLpUiCopyForIndustryKey(supabase, skFromMaster).catch((e) =>
+          console.error('[service-personas] dependent LP refresh', e),
+        );
+      }
       return NextResponse.json({
         ok: true,
         id: typeof data?.id === 'string' ? data.id : null,
@@ -178,6 +186,9 @@ export async function POST(request: Request) {
       );
     }
 
+    void refreshLpUiCopyForIndustryKey(supabase, flat.service_key).catch((e) =>
+      console.error('[service-personas] dependent LP refresh', e),
+    );
     return NextResponse.json({
       ok: true,
       id: typeof data?.id === 'string' ? data.id : null,
