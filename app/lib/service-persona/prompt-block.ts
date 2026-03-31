@@ -1,5 +1,29 @@
 import type { ServicePersonaParsed } from '@/app/lib/service-persona/parse-db-row';
 
+function heroAnglesFromStructured(
+  pj: Record<string, unknown> | null | undefined,
+): string[] {
+  if (!pj || typeof pj !== 'object') return [];
+  const root = pj.hero_angles;
+  const fromRoot = Array.isArray(root)
+    ? root.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+    : [];
+  if (fromRoot.length > 0) {
+    return fromRoot.map((x) => x.trim()).slice(0, 10);
+  }
+  const cr = pj.content_rules;
+  if (cr && typeof cr === 'object' && !Array.isArray(cr)) {
+    const h = (cr as Record<string, unknown>).hero_angles;
+    if (Array.isArray(h)) {
+      return h
+        .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        .map((x) => x.trim())
+        .slice(0, 10);
+    }
+  }
+  return [];
+}
+
 function bulletBlock(title: string, items: string[], maxItems: number): string {
   const slice = items.slice(0, maxItems);
   if (slice.length === 0) return '';
@@ -35,17 +59,14 @@ export function buildServicePersonaPromptBlock(
   const b4 = bulletBlock('セクション構成の優先度（参考。キー欠落やJSON形式の変更は禁止）', persona.section_structure, 30);
   if (b4) lines.push('', b4);
 
-  const pj = persona.persona_json;
-  if (pj && typeof pj === 'object' && !Array.isArray(pj)) {
-    const heroRaw = (pj as Record<string, unknown>).hero_angles;
-    if (Array.isArray(heroRaw)) {
-      const hero = heroRaw
-        .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
-        .map((x) => x.trim())
-        .slice(0, 10);
-      const hb = bulletBlock('ヒーロー角度・訴求の軸（persona_json）', hero, 10);
-      if (hb) lines.push('', hb);
-    }
+  const structured =
+    persona.master_json && Object.keys(persona.master_json).length > 0
+      ? persona.master_json
+      : persona.persona_json;
+  if (structured && typeof structured === 'object' && !Array.isArray(structured)) {
+    const hero = heroAnglesFromStructured(structured as Record<string, unknown>);
+    const hb = bulletBlock('ヒーロー角度・訴求の軸（ルールマスター JSON）', hero, 10);
+    if (hb) lines.push('', hb);
   }
 
   const forbidden = persona.forbidden_words.filter((w) => w.length >= 2);

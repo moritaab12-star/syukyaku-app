@@ -104,7 +104,7 @@ export default function ServicePersonasListPage() {
               ダッシュボード
             </Link>
             <h1 className="text-xl font-semibold text-slate-50 md:text-2xl">
-              業種JSON（人格）一覧
+              業種ルールマスター一覧
             </h1>
             <p className="mt-2 text-sm text-slate-400">
               LP 新規作成時に選べる業種のみがここに登録されたものです。

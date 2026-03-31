@@ -21,7 +21,7 @@ export function mergeUniqueStringLists(...lists: string[][]): string[] {
 }
 
 /** hero_angles を section_structure 用にプレフィックス付きで結合（プロンプトで区別しやすく） */
-function heroAnglesToSectionLines(hero: string[]): string[] {
+export function heroAnglesToSectionLines(hero: string[]): string[] {
   return hero.map((h) =>
     /^ヒーロー角度:/.test(h) ? h : `ヒーロー角度: ${h}`,
   );
@@ -173,7 +173,7 @@ export function canonicalPersonaJsonFromParsedRow(
   };
 }
 
-function extractHeroAnglesFromSection(section: string[]): string[] {
+export function extractHeroAnglesFromSection(section: string[]): string[] {
   const out: string[] = [];
   for (const line of section) {
     const t = line.trim();
@@ -184,6 +184,6 @@ function extractHeroAnglesFromSection(section: string[]): string[] {
   return out;
 }
 
-function stripHeroPrefixedLines(section: string[]): string[] {
+export function stripHeroPrefixedLines(section: string[]): string[] {
   return section.filter((line) => !line.trim().startsWith('ヒーロー角度:'));
 }

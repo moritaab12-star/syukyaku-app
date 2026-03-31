@@ -3,11 +3,11 @@ import { verifyAdminRequest } from '@/lib/admin-auth';
 import { createSupabaseAdminClient } from '@/lib/supabase';
 import { servicePersonaCreateBodySchema } from '@/app/lib/service-persona/schema';
 import {
-  canonicalPersonaJsonFromFormBody,
-  parsePersonaJsonText,
-  personaJsonValidatedToDbPayload,
-} from '@/app/lib/service-persona/persona-json-mapper';
-import { readPersonaJsonTextFromBody } from '@/app/lib/service-persona/persona-json-api';
+  canonicalNestedMasterFromFormBody,
+  flatColumnsFromMasterJson,
+  parseMasterJsonText,
+} from '@/app/lib/service-persona/master-json-mapper';
+import { readMasterJsonTextFromBody } from '@/app/lib/service-persona/master-json-api';
 import {
   listActiveServicePersonasForSelect,
   listAllServicePersonasOrdered,
@@ -57,16 +57,16 @@ export async function POST(request: Request) {
     }
 
     const bodyRaw = (await request.json().catch(() => null)) as unknown;
-    const pjText = readPersonaJsonTextFromBody(bodyRaw);
+    const masterText = readMasterJsonTextFromBody(bodyRaw);
 
     const supabase = createSupabaseAdminClient();
 
-    if (pjText.length > 0) {
-      const pr = parsePersonaJsonText(pjText);
+    if (masterText.length > 0) {
+      const pr = parseMasterJsonText(masterText);
       if (pr._result !== 'valid') {
         return NextResponse.json({ ok: false, error: pr.error }, { status: 400 });
       }
-      const payload = personaJsonValidatedToDbPayload(pr.data);
+      const flat = flatColumnsFromMasterJson(pr.data);
       const bodyObj =
         bodyRaw && typeof bodyRaw === 'object'
           ? (bodyRaw as Record<string, unknown>)
@@ -77,16 +77,17 @@ export async function POST(request: Request) {
       }
 
       const insertRow = {
-        service_key: payload.service_key,
-        service_name: payload.service_name,
-        tone: payload.tone,
-        cta_labels: payload.cta_labels,
-        pain_points: payload.pain_points,
-        faq_topics: payload.faq_topics,
-        forbidden_words: payload.forbidden_words,
-        section_structure: payload.section_structure,
-        is_active: payload.is_active,
-        persona_json: payload.persona_json,
+        service_key: flat.service_key,
+        service_name: flat.service_name,
+        tone: flat.tone,
+        cta_labels: flat.cta_labels,
+        pain_points: flat.pain_points,
+        faq_topics: flat.faq_topics,
+        forbidden_words: flat.forbidden_words,
+        section_structure: flat.section_structure,
+        is_active: flat.is_active,
+        master_json: pr.data,
+        persona_json: pr.data,
         raw_json: rawJsonVal,
         updated_at: new Date().toISOString(),
       };
@@ -136,19 +137,21 @@ export async function POST(request: Request) {
     }
 
     const body = parsed.data;
-    const persona_json = canonicalPersonaJsonFromFormBody(body);
+    const master = canonicalNestedMasterFromFormBody(body);
+    const flat = flatColumnsFromMasterJson(master);
 
     const insertRow = {
-      service_key: body.service_key,
-      service_name: body.service_name,
-      tone: body.tone ?? null,
-      cta_labels: body.cta_labels,
-      pain_points: body.pain_points,
-      faq_topics: body.faq_topics,
-      forbidden_words: body.forbidden_words,
-      section_structure: body.section_structure,
-      is_active: body.is_active,
-      persona_json,
+      service_key: flat.service_key,
+      service_name: flat.service_name,
+      tone: flat.tone,
+      cta_labels: flat.cta_labels,
+      pain_points: flat.pain_points,
+      faq_topics: flat.faq_topics,
+      forbidden_words: flat.forbidden_words,
+      section_structure: flat.section_structure,
+      is_active: flat.is_active,
+      master_json: master,
+      persona_json: master,
       raw_json: body.raw_json ?? null,
       updated_at: new Date().toISOString(),
     };

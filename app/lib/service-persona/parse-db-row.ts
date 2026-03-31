@@ -13,7 +13,9 @@ export type ServicePersonaParsed = {
   section_structure: string[];
   is_active: boolean;
   raw_json: Record<string, unknown> | null;
-  /** 構造化ソース（直接JSON投入時はそのまま。フォーム保存時は列からの正規化コピー） */
+  /** 業種ルールマスター本体（任意ネスト・拡張自由） */
+  master_json: Record<string, unknown> | null;
+  /** 後方互換・ミラー用（master_json と同内容で保存する想定） */
   persona_json: Record<string, unknown> | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -60,6 +62,7 @@ export function parseServicePersonaRow(
     section_structure: sanitizeStringList(row.section_structure),
     is_active: row.is_active !== false,
     raw_json: asRecord(row.raw_json),
+    master_json: asRecord(row.master_json),
     persona_json: asRecord(row.persona_json),
     created_at,
     updated_at,

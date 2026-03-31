@@ -8,31 +8,37 @@ import { linesToStringArray } from '@/app/lib/service-persona/normalize';
 import type { ServicePersonaParsed } from '@/app/lib/service-persona/parse-db-row';
 import type { ServicePersonaCreateBody } from '@/app/lib/service-persona/schema';
 import {
-  canonicalPersonaJsonFromFormBody,
-  canonicalPersonaJsonFromParsedRow,
-  parsePersonaJsonText,
-  personaJsonValidatedToDbPayload,
-} from '@/app/lib/service-persona/persona-json-mapper';
+  canonicalNestedMasterFromFormBody,
+  canonicalNestedMasterFromParsedRow,
+  formStateFromMasterJson,
+  parseMasterJsonText,
+} from '@/app/lib/service-persona/master-json-mapper';
 
 const inputClass =
   'w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-50 outline-none placeholder:text-slate-500 focus:border-sky-300 focus:bg-slate-900';
 const labelClass = 'text-sm font-semibold text-slate-50';
 
-const PERSONA_JSON_PLACEHOLDER = `{
+const MASTER_JSON_PLACEHOLDER = `{
   "service_key": "real_estate_rent",
-  "service_name": "賃貸仲介",
-  "tone": "親身・安心",
-  "cta_patterns": ["LINEで条件相談する"],
-  "pain_point_patterns": ["初期費用が不安"],
-  "hero_angles": ["初めての部屋探し向け"],
-  "faq_topics": ["初期費用", "審査"],
-  "forbidden_words": [],
-  "section_structure": ["ヒーロー", "悩み", "CTA"],
-  "is_active": true
+  "basic": { "service_name": "不動産賃貸", "tone": "親身・安心" },
+  "language_rules": { "forbidden_words": [] },
+  "cta_rules": { "patterns": [] },
+  "content_rules": { "pain_points": [], "faq_topics": [], "hero_angles": [] },
+  "structure_rules": { "section_order": [] },
+  "design_rules": {},
+  "writing_rules": [],
+  "compliance_rules": []
 }`;
 
-function joinLines(arr: string[]): string {
-  return arr.length > 0 ? arr.join('\n') : '';
+function initialMasterJsonText(r: ServicePersonaParsed): string {
+  const mj = r.master_json;
+  if (mj && Object.keys(mj).length > 0) {
+    return JSON.stringify(mj, null, 2);
+  }
+  if (r.persona_json && Object.keys(r.persona_json).length > 0) {
+    return JSON.stringify(r.persona_json, null, 2);
+  }
+  return JSON.stringify(canonicalNestedMasterFromParsedRow(r), null, 2);
 }
 
 export default function ServicePersonaEditPage() {
@@ -48,7 +54,7 @@ export default function ServicePersonaEditPage() {
   const [faqLines, setFaqLines] = useState('');
   const [forbiddenLines, setForbiddenLines] = useState('');
   const [sectionLines, setSectionLines] = useState('');
-  const [personaJsonText, setPersonaJsonText] = useState('');
+  const [masterJsonText, setMasterJsonText] = useState('');
   const [rawJson, setRawJson] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -58,16 +64,12 @@ export default function ServicePersonaEditPage() {
     setServiceName(r.service_name);
     setServiceKeyDisplay(r.service_key);
     setTone(r.tone ?? '');
-    setCtaLines(joinLines(r.cta_labels));
-    setPainLines(joinLines(r.pain_points));
-    setFaqLines(joinLines(r.faq_topics));
-    setForbiddenLines(joinLines(r.forbidden_words));
-    setSectionLines(joinLines(r.section_structure));
-    const pj =
-      r.persona_json && Object.keys(r.persona_json).length > 0
-        ? r.persona_json
-        : canonicalPersonaJsonFromParsedRow(r);
-    setPersonaJsonText(JSON.stringify(pj, null, 2));
+    setCtaLines(r.cta_labels.join('\n'));
+    setPainLines(r.pain_points.join('\n'));
+    setFaqLines(r.faq_topics.join('\n'));
+    setForbiddenLines(r.forbidden_words.join('\n'));
+    setSectionLines(r.section_structure.join('\n'));
+    setMasterJsonText(initialMasterJsonText(r));
     setRawJson(
       r.raw_json && typeof r.raw_json === 'object'
         ? JSON.stringify(r.raw_json, null, 2)
@@ -131,8 +133,8 @@ export default function ServicePersonaEditPage() {
         is_active: isActive,
         raw_json: null,
       };
-      const obj = canonicalPersonaJsonFromFormBody(body);
-      setPersonaJsonText(JSON.stringify(obj, null, 2));
+      const obj = canonicalNestedMasterFromFormBody(body);
+      setMasterJsonText(JSON.stringify(obj, null, 2));
     } catch {
       setError('フォームからの生成に失敗しました。');
     }
@@ -140,26 +142,30 @@ export default function ServicePersonaEditPage() {
 
   const handleJsonToForm = () => {
     setError(null);
-    const pr = parsePersonaJsonText(personaJsonText);
+    const pr = parseMasterJsonText(masterJsonText);
     if (pr._result !== 'valid') {
       setError(pr.error);
       return;
     }
-    const payload = personaJsonValidatedToDbPayload(pr.data);
-    if (payload.service_key.trim() !== serviceKeyDisplay.trim()) {
+    const sk =
+      typeof pr.data.service_key === 'string'
+        ? pr.data.service_key.trim()
+        : '';
+    if (sk !== serviceKeyDisplay.trim()) {
       setError(
-        `JSON の service_key「${payload.service_key.trim()}」がこの行のキー「${serviceKeyDisplay}」と一致しません。`,
+        `JSON の service_key「${sk}」がこの行のキー「${serviceKeyDisplay}」と一致しません。`,
       );
       return;
     }
-    setServiceName(payload.service_name);
-    setTone(payload.tone ?? '');
-    setCtaLines(joinLines(payload.cta_labels));
-    setPainLines(joinLines(payload.pain_points));
-    setFaqLines(joinLines(payload.faq_topics));
-    setForbiddenLines(joinLines(payload.forbidden_words));
-    setSectionLines(joinLines(payload.section_structure));
-    setIsActive(payload.is_active);
+    const fs = formStateFromMasterJson(pr.data);
+    setServiceName(fs.serviceName);
+    setTone(fs.tone);
+    setCtaLines(fs.ctaLines);
+    setPainLines(fs.painLines);
+    setFaqLines(fs.faqLines);
+    setForbiddenLines(fs.forbiddenLines);
+    setSectionLines(fs.sectionLines);
+    setIsActive(fs.isActive);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -168,18 +174,22 @@ export default function ServicePersonaEditPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const usePersonaJson = personaJsonText.trim().length > 0;
+      const useMasterJson = masterJsonText.trim().length > 0;
 
-      if (usePersonaJson) {
-        const pr = parsePersonaJsonText(personaJsonText);
+      if (useMasterJson) {
+        const pr = parseMasterJsonText(masterJsonText);
         if (pr._result !== 'valid') {
           setError(pr.error);
           setSubmitting(false);
           return;
         }
-        if (pr.data.service_key.trim() !== serviceKeyDisplay.trim()) {
+        const sk =
+          typeof pr.data.service_key === 'string'
+            ? pr.data.service_key.trim()
+            : '';
+        if (sk !== serviceKeyDisplay.trim()) {
           setError(
-            `JSON の service_key「${pr.data.service_key.trim()}」がこの行のキー「${serviceKeyDisplay}」と一致しません。`,
+            `JSON の service_key「${sk}」がこの行のキー「${serviceKeyDisplay}」と一致しません。`,
           );
           setSubmitting(false);
           return;
@@ -197,9 +207,9 @@ export default function ServicePersonaEditPage() {
         }
       }
 
-      const body: Record<string, unknown> = usePersonaJson
+      const body: Record<string, unknown> = useMasterJson
         ? {
-            persona_json_text: personaJsonText.trim(),
+            master_json_text: masterJsonText.trim(),
             raw_json: rawParsed,
           }
         : {
@@ -254,7 +264,9 @@ export default function ServicePersonaEditPage() {
           <ArrowLeft className="h-3.5 w-3.5" />
           一覧に戻る
         </Link>
-        <h1 className="text-xl font-semibold text-slate-50">業種JSON 編集</h1>
+        <h1 className="text-xl font-semibold text-slate-50">
+          業種ルールマスター（編集）
+        </h1>
         <p className="mt-2 font-mono text-xs text-slate-500">
           service_key: {serviceKeyDisplay}（変更不可）
         </p>
@@ -272,7 +284,7 @@ export default function ServicePersonaEditPage() {
               className={inputClass}
               value={serviceName}
               onChange={(e) => setServiceName(e.target.value)}
-              required={personaJsonText.trim().length === 0}
+              required={masterJsonText.trim().length === 0}
               maxLength={200}
             />
           </div>
@@ -326,21 +338,21 @@ export default function ServicePersonaEditPage() {
             />
           </div>
 
-          <div className="space-y-3 rounded-2xl border border-amber-900/50 bg-amber-950/20 p-5">
+          <div className="space-y-3 rounded-2xl border border-amber-900/50 bg-amber-950/20 p-5 ring-1 ring-amber-900/30">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-md bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-200">
-                上級者向け
+                ルールの本体
               </span>
               <label className={`${labelClass} mb-0`}>
-                業種人格JSON（直接入力）
+                業種ルール master_json（JSON）
               </label>
             </div>
             <p className="text-xs leading-relaxed text-slate-400">
-              この欄に有効なJSONが入っている場合、保存時は{' '}
-              <strong className="font-medium text-slate-200">JSONの内容だけ</strong>
-              が正として保存されます。
+              このJSONは業種ルールの<strong className="font-medium text-slate-200">本体</strong>
+              です。入力されている場合、保存時は<strong className="font-medium text-slate-200">このJSONだけ</strong>
+              が正として保存され、フォームとはマージされません。
               <span className="mt-1 block">
-                フォームの内容だけで更新したいときは、このJSON欄を空にしてから保存してください。読み込み直後は DB の内容が入っています。
+                フォームだけで更新したいときは、この欄を空にしてから保存してください。
               </span>
               service_key はこの行と一致している必要があります。
             </p>
@@ -350,7 +362,7 @@ export default function ServicePersonaEditPage() {
                 onClick={() => handleFormToJson()}
                 className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700"
               >
-                フォームからJSONを生成
+                フォームからJSON生成
               </button>
               <button
                 type="button"
@@ -361,11 +373,13 @@ export default function ServicePersonaEditPage() {
               </button>
             </div>
             <textarea
-              className={`${inputClass} min-h-[22rem] font-mono text-xs leading-relaxed`}
-              value={personaJsonText}
-              onChange={(e) => setPersonaJsonText(e.target.value)}
-              placeholder={PERSONA_JSON_PLACEHOLDER}
+              className={`${inputClass} min-h-[28rem] font-mono text-xs leading-relaxed text-sky-100/95`}
+              value={masterJsonText}
+              onChange={(e) => setMasterJsonText(e.target.value)}
+              placeholder={MASTER_JSON_PLACEHOLDER}
               spellCheck={false}
+              autoComplete="off"
+              data-gramm="false"
             />
           </div>
 

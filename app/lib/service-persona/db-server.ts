@@ -116,3 +116,23 @@ export async function getServicePersonaById(
   if (error || !data) return null;
   return parseServicePersonaRow(data as Record<string, unknown>);
 }
+
+/**
+ * LP 生成などから参照: `master_json` を優先し、未設定なら `persona_json` を返す。
+ */
+export async function getServiceMaster(
+  supabase: SupabaseClient,
+  serviceKey: string,
+): Promise<Record<string, unknown> | null> {
+  const persona = await getActiveServicePersonaByKey(supabase, serviceKey);
+  if (!persona) return null;
+  const mj = persona.master_json;
+  if (mj && Object.keys(mj).length > 0) {
+    return { ...mj };
+  }
+  const pj = persona.persona_json;
+  if (pj && Object.keys(pj).length > 0) {
+    return { ...pj };
+  }
+  return null;
+}

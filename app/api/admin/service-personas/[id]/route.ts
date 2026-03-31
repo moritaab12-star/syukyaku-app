@@ -6,11 +6,11 @@ import {
   getServicePersonaById,
 } from '@/app/lib/service-persona/db-server';
 import {
-  canonicalPersonaJsonFromParsedRow,
-  parsePersonaJsonText,
-  personaJsonValidatedToDbPayload,
-} from '@/app/lib/service-persona/persona-json-mapper';
-import { readPersonaJsonTextFromBody } from '@/app/lib/service-persona/persona-json-api';
+  canonicalNestedMasterFromParsedRow,
+  flatColumnsFromMasterJson,
+  parseMasterJsonText,
+} from '@/app/lib/service-persona/master-json-mapper';
+import { readMasterJsonTextFromBody } from '@/app/lib/service-persona/master-json-api';
 import { parseServicePersonaRow } from '@/app/lib/service-persona/parse-db-row';
 
 const UUID_RE =
@@ -92,37 +92,42 @@ export async function PATCH(
     }
 
     const bodyRaw = (await request.json().catch(() => ({}))) as unknown;
-    const pjText = readPersonaJsonTextFromBody(bodyRaw);
+    const masterText = readMasterJsonTextFromBody(bodyRaw);
 
-    if (pjText.length > 0) {
-      const pr = parsePersonaJsonText(pjText);
+    if (masterText.length > 0) {
+      const pr = parseMasterJsonText(masterText);
       if (pr._result !== 'valid') {
         return NextResponse.json({ ok: false, error: pr.error }, { status: 400 });
       }
-      if (pr.data.service_key.trim() !== existing.service_key) {
+      const sk =
+        typeof pr.data.service_key === 'string'
+          ? pr.data.service_key.trim()
+          : '';
+      if (sk !== existing.service_key) {
         return NextResponse.json(
           {
             ok: false,
-            error: `JSON の service_key「${pr.data.service_key}」がこの行のキー「${existing.service_key}」と一致しません。`,
+            error: `JSON の service_key「${sk}」がこの行のキー「${existing.service_key}」と一致しません。`,
           },
           { status: 400 },
         );
       }
-      const payload = personaJsonValidatedToDbPayload(pr.data);
+      const flat = flatColumnsFromMasterJson(pr.data);
       const bodyObj =
         bodyRaw && typeof bodyRaw === 'object'
           ? (bodyRaw as Record<string, unknown>)
           : {};
       const updateRow: Record<string, unknown> = {
-        service_name: payload.service_name,
-        tone: payload.tone,
-        cta_labels: payload.cta_labels,
-        pain_points: payload.pain_points,
-        faq_topics: payload.faq_topics,
-        forbidden_words: payload.forbidden_words,
-        section_structure: payload.section_structure,
-        is_active: payload.is_active,
-        persona_json: payload.persona_json,
+        service_name: flat.service_name,
+        tone: flat.tone,
+        cta_labels: flat.cta_labels,
+        pain_points: flat.pain_points,
+        faq_topics: flat.faq_topics,
+        forbidden_words: flat.forbidden_words,
+        section_structure: flat.section_structure,
+        is_active: flat.is_active,
+        master_json: pr.data,
+        persona_json: pr.data,
         updated_at: new Date().toISOString(),
       };
       if (bodyObj.raw_json !== undefined) {
@@ -213,15 +218,20 @@ export async function PATCH(
     if (!fetchErr && fresh) {
       const pr = parseServicePersonaRow(fresh as Record<string, unknown>);
       if (pr) {
+        const nested = canonicalNestedMasterFromParsedRow(pr);
         const { error: pjErr } = await supabase
           .from('service_personas')
           .update({
-            persona_json: canonicalPersonaJsonFromParsedRow(pr),
+            master_json: nested,
+            persona_json: nested,
             updated_at: new Date().toISOString(),
           })
           .eq('id', id);
         if (pjErr) {
-          console.warn('[service-personas] persona_json sync failed', pjErr.message);
+          console.warn(
+            '[service-personas] master_json / persona_json sync failed',
+            pjErr.message,
+          );
         }
       }
     }

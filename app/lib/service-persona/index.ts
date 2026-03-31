@@ -4,6 +4,7 @@
 export {
   countActiveServicePersonas,
   getActiveServicePersonaByKey,
+  getServiceMaster,
   getServicePersonaById,
   isActiveServicePersonaKey,
   listActiveServicePersonasForSelect,
