@@ -6,10 +6,30 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { linesToStringArray } from '@/app/lib/service-persona/normalize';
 import type { ServicePersonaParsed } from '@/app/lib/service-persona/parse-db-row';
+import type { ServicePersonaCreateBody } from '@/app/lib/service-persona/schema';
+import {
+  canonicalPersonaJsonFromFormBody,
+  canonicalPersonaJsonFromParsedRow,
+  parsePersonaJsonText,
+  personaJsonValidatedToDbPayload,
+} from '@/app/lib/service-persona/persona-json-mapper';
 
 const inputClass =
   'w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-50 outline-none placeholder:text-slate-500 focus:border-sky-300 focus:bg-slate-900';
 const labelClass = 'text-sm font-semibold text-slate-50';
+
+const PERSONA_JSON_PLACEHOLDER = `{
+  "service_key": "real_estate_rent",
+  "service_name": "賃貸仲介",
+  "tone": "親身・安心",
+  "cta_patterns": ["LINEで条件相談する"],
+  "pain_point_patterns": ["初期費用が不安"],
+  "hero_angles": ["初めての部屋探し向け"],
+  "faq_topics": ["初期費用", "審査"],
+  "forbidden_words": [],
+  "section_structure": ["ヒーロー", "悩み", "CTA"],
+  "is_active": true
+}`;
 
 function joinLines(arr: string[]): string {
   return arr.length > 0 ? arr.join('\n') : '';
@@ -28,6 +48,7 @@ export default function ServicePersonaEditPage() {
   const [faqLines, setFaqLines] = useState('');
   const [forbiddenLines, setForbiddenLines] = useState('');
   const [sectionLines, setSectionLines] = useState('');
+  const [personaJsonText, setPersonaJsonText] = useState('');
   const [rawJson, setRawJson] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -42,6 +63,11 @@ export default function ServicePersonaEditPage() {
     setFaqLines(joinLines(r.faq_topics));
     setForbiddenLines(joinLines(r.forbidden_words));
     setSectionLines(joinLines(r.section_structure));
+    const pj =
+      r.persona_json && Object.keys(r.persona_json).length > 0
+        ? r.persona_json
+        : canonicalPersonaJsonFromParsedRow(r);
+    setPersonaJsonText(JSON.stringify(pj, null, 2));
     setRawJson(
       r.raw_json && typeof r.raw_json === 'object'
         ? JSON.stringify(r.raw_json, null, 2)
@@ -86,26 +112,15 @@ export default function ServicePersonaEditPage() {
     };
   }, [idRaw, applyRow]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!idRaw) return;
+  const handleFormToJson = () => {
     setError(null);
-    setSubmitting(true);
     try {
-      let rawParsed: unknown = undefined;
-      if (rawJson.trim().length > 0) {
-        try {
-          rawParsed = JSON.parse(rawJson) as unknown;
-        } catch {
-          setError('raw_json は有効な JSON である必要があります。');
-          setSubmitting(false);
-          return;
-        }
-      } else {
-        rawParsed = null;
+      if (!serviceKeyDisplay.trim() || !serviceName.trim()) {
+        setError('業種名と service_key が必要です。');
+        return;
       }
-
-      const body = {
+      const body: ServicePersonaCreateBody = {
+        service_key: serviceKeyDisplay.trim(),
         service_name: serviceName.trim(),
         tone: tone.trim() || null,
         cta_labels: linesToStringArray(ctaLines),
@@ -114,8 +129,90 @@ export default function ServicePersonaEditPage() {
         forbidden_words: linesToStringArray(forbiddenLines),
         section_structure: linesToStringArray(sectionLines),
         is_active: isActive,
-        raw_json: rawParsed,
+        raw_json: null,
       };
+      const obj = canonicalPersonaJsonFromFormBody(body);
+      setPersonaJsonText(JSON.stringify(obj, null, 2));
+    } catch {
+      setError('フォームからの生成に失敗しました。');
+    }
+  };
+
+  const handleJsonToForm = () => {
+    setError(null);
+    const pr = parsePersonaJsonText(personaJsonText);
+    if (pr._result !== 'valid') {
+      setError(pr.error);
+      return;
+    }
+    const payload = personaJsonValidatedToDbPayload(pr.data);
+    if (payload.service_key.trim() !== serviceKeyDisplay.trim()) {
+      setError(
+        `JSON の service_key「${payload.service_key.trim()}」がこの行のキー「${serviceKeyDisplay}」と一致しません。`,
+      );
+      return;
+    }
+    setServiceName(payload.service_name);
+    setTone(payload.tone ?? '');
+    setCtaLines(joinLines(payload.cta_labels));
+    setPainLines(joinLines(payload.pain_points));
+    setFaqLines(joinLines(payload.faq_topics));
+    setForbiddenLines(joinLines(payload.forbidden_words));
+    setSectionLines(joinLines(payload.section_structure));
+    setIsActive(payload.is_active);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!idRaw) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const usePersonaJson = personaJsonText.trim().length > 0;
+
+      if (usePersonaJson) {
+        const pr = parsePersonaJsonText(personaJsonText);
+        if (pr._result !== 'valid') {
+          setError(pr.error);
+          setSubmitting(false);
+          return;
+        }
+        if (pr.data.service_key.trim() !== serviceKeyDisplay.trim()) {
+          setError(
+            `JSON の service_key「${pr.data.service_key.trim()}」がこの行のキー「${serviceKeyDisplay}」と一致しません。`,
+          );
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      let rawParsed: unknown = null;
+      if (rawJson.trim().length > 0) {
+        try {
+          rawParsed = JSON.parse(rawJson) as unknown;
+        } catch {
+          setError('raw_json は有効な JSON である必要があります。');
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      const body: Record<string, unknown> = usePersonaJson
+        ? {
+            persona_json_text: personaJsonText.trim(),
+            raw_json: rawParsed,
+          }
+        : {
+            service_name: serviceName.trim(),
+            tone: tone.trim() || null,
+            cta_labels: linesToStringArray(ctaLines),
+            pain_points: linesToStringArray(painLines),
+            faq_topics: linesToStringArray(faqLines),
+            forbidden_words: linesToStringArray(forbiddenLines),
+            section_structure: linesToStringArray(sectionLines),
+            is_active: isActive,
+            raw_json: rawParsed,
+          };
 
       const res = await fetch(`/api/admin/service-personas/${idRaw}`, {
         method: 'PATCH',
@@ -175,7 +272,7 @@ export default function ServicePersonaEditPage() {
               className={inputClass}
               value={serviceName}
               onChange={(e) => setServiceName(e.target.value)}
-              required
+              required={personaJsonText.trim().length === 0}
               maxLength={200}
             />
           </div>
@@ -228,6 +325,50 @@ export default function ServicePersonaEditPage() {
               onChange={(e) => setSectionLines(e.target.value)}
             />
           </div>
+
+          <div className="space-y-3 rounded-2xl border border-amber-900/50 bg-amber-950/20 p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-md bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-200">
+                上級者向け
+              </span>
+              <label className={`${labelClass} mb-0`}>
+                業種人格JSON（直接入力）
+              </label>
+            </div>
+            <p className="text-xs leading-relaxed text-slate-400">
+              この欄に有効なJSONが入っている場合、保存時は{' '}
+              <strong className="font-medium text-slate-200">JSONの内容だけ</strong>
+              が正として保存されます。
+              <span className="mt-1 block">
+                フォームの内容だけで更新したいときは、このJSON欄を空にしてから保存してください。読み込み直後は DB の内容が入っています。
+              </span>
+              service_key はこの行と一致している必要があります。
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleFormToJson()}
+                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700"
+              >
+                フォームからJSONを生成
+              </button>
+              <button
+                type="button"
+                onClick={() => handleJsonToForm()}
+                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700"
+              >
+                JSONからフォームへ反映
+              </button>
+            </div>
+            <textarea
+              className={`${inputClass} min-h-[22rem] font-mono text-xs leading-relaxed`}
+              value={personaJsonText}
+              onChange={(e) => setPersonaJsonText(e.target.value)}
+              placeholder={PERSONA_JSON_PLACEHOLDER}
+              spellCheck={false}
+            />
+          </div>
+
           <div className="space-y-2">
             <label className={labelClass}>raw_json（任意）</label>
             <textarea

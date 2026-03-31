@@ -13,6 +13,8 @@ export type ServicePersonaParsed = {
   section_structure: string[];
   is_active: boolean;
   raw_json: Record<string, unknown> | null;
+  /** 構造化ソース（直接JSON投入時はそのまま。フォーム保存時は列からの正規化コピー） */
+  persona_json: Record<string, unknown> | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -58,6 +60,7 @@ export function parseServicePersonaRow(
     section_structure: sanitizeStringList(row.section_structure),
     is_active: row.is_active !== false,
     raw_json: asRecord(row.raw_json),
+    persona_json: asRecord(row.persona_json),
     created_at,
     updated_at,
   };

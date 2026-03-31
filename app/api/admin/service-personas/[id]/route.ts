@@ -2,7 +2,16 @@ import { NextResponse } from 'next/server';
 import { verifyAdminRequest } from '@/lib/admin-auth';
 import { createSupabaseAdminClient } from '@/lib/supabase';
 import { servicePersonaUpdateBodySchema } from '@/app/lib/service-persona/schema';
-import { getServicePersonaById } from '@/app/lib/service-persona/db-server';
+import {
+  getServicePersonaById,
+} from '@/app/lib/service-persona/db-server';
+import {
+  canonicalPersonaJsonFromParsedRow,
+  parsePersonaJsonText,
+  personaJsonValidatedToDbPayload,
+} from '@/app/lib/service-persona/persona-json-mapper';
+import { readPersonaJsonTextFromBody } from '@/app/lib/service-persona/persona-json-api';
+import { parseServicePersonaRow } from '@/app/lib/service-persona/parse-db-row';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -73,8 +82,68 @@ export async function PATCH(
       );
     }
 
-    const json = await request.json().catch(() => null);
-    const parsed = servicePersonaUpdateBodySchema.safeParse(json);
+    const supabase = createSupabaseAdminClient();
+    const existing = await getServicePersonaById(supabase, id);
+    if (!existing) {
+      return NextResponse.json(
+        { ok: false, error: 'データが見つかりません。' },
+        { status: 404 },
+      );
+    }
+
+    const bodyRaw = (await request.json().catch(() => ({}))) as unknown;
+    const pjText = readPersonaJsonTextFromBody(bodyRaw);
+
+    if (pjText.length > 0) {
+      const pr = parsePersonaJsonText(pjText);
+      if (pr._result !== 'valid') {
+        return NextResponse.json({ ok: false, error: pr.error }, { status: 400 });
+      }
+      if (pr.data.service_key.trim() !== existing.service_key) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `JSON の service_key「${pr.data.service_key}」がこの行のキー「${existing.service_key}」と一致しません。`,
+          },
+          { status: 400 },
+        );
+      }
+      const payload = personaJsonValidatedToDbPayload(pr.data);
+      const bodyObj =
+        bodyRaw && typeof bodyRaw === 'object'
+          ? (bodyRaw as Record<string, unknown>)
+          : {};
+      const updateRow: Record<string, unknown> = {
+        service_name: payload.service_name,
+        tone: payload.tone,
+        cta_labels: payload.cta_labels,
+        pain_points: payload.pain_points,
+        faq_topics: payload.faq_topics,
+        forbidden_words: payload.forbidden_words,
+        section_structure: payload.section_structure,
+        is_active: payload.is_active,
+        persona_json: payload.persona_json,
+        updated_at: new Date().toISOString(),
+      };
+      if (bodyObj.raw_json !== undefined) {
+        updateRow.raw_json = bodyObj.raw_json;
+      }
+
+      const { error } = await supabase
+        .from('service_personas')
+        .update(updateRow)
+        .eq('id', id);
+
+      if (error) {
+        return NextResponse.json(
+          { ok: false, error: error.message },
+          { status: 500 },
+        );
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    const parsed = servicePersonaUpdateBodySchema.safeParse(bodyRaw);
     if (!parsed.success) {
       const first = parsed.error.flatten().fieldErrors;
       const msg = Object.entries(first)
@@ -123,17 +192,38 @@ export async function PATCH(
       updateRow.raw_json = patch.raw_json;
     }
 
-    const supabase = createSupabaseAdminClient();
-    const { error } = await supabase
+    const { error: updateErr } = await supabase
       .from('service_personas')
       .update(updateRow)
       .eq('id', id);
 
-    if (error) {
+    if (updateErr) {
       return NextResponse.json(
-        { ok: false, error: error.message },
+        { ok: false, error: updateErr.message },
         { status: 500 },
       );
+    }
+
+    const { data: fresh, error: fetchErr } = await supabase
+      .from('service_personas')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (!fetchErr && fresh) {
+      const pr = parseServicePersonaRow(fresh as Record<string, unknown>);
+      if (pr) {
+        const { error: pjErr } = await supabase
+          .from('service_personas')
+          .update({
+            persona_json: canonicalPersonaJsonFromParsedRow(pr),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', id);
+        if (pjErr) {
+          console.warn('[service-personas] persona_json sync failed', pjErr.message);
+        }
+      }
     }
 
     return NextResponse.json({ ok: true });
