@@ -143,24 +143,73 @@ export function validateCopyTextAgainstService(
   return { ok: reasons.length === 0, reasons };
 }
 
+function validateForbiddenPhrases(
+  combinedOutput: string,
+  phrases: string[],
+): string[] {
+  const reasons: string[] = [];
+  const out = norm(combinedOutput);
+  for (const p of phrases) {
+    const t = norm(p);
+    if (t.length < 2) continue;
+    if (out.includes(t)) {
+      reasons.push(
+        `禁止ワード・表現が含まれています: 「${p.slice(0, 80)}${p.length > 80 ? '…' : ''}」。削除または言い換えてください。`,
+      );
+    }
+  }
+  return reasons;
+}
+
+export type LpCopyPackValidateOptions = {
+  /** 業種人格などで定義した禁止表現（部分一致・NFKC 正規化後） */
+  forbiddenPhrases?: string[];
+};
+
+/**
+ * サービス原文検証 + 任意の禁止語検証をマージ。
+ */
 export function validateLpUiCopyPack(
   serviceRaw: string,
   pack: Record<string, unknown>,
+  options?: LpCopyPackValidateOptions,
 ): LpCopyValidationResult {
   const sink: string[] = [];
   collectOutputStrings(pack, sink);
-  return validateCopyTextAgainstService(serviceRaw, sink.join('\n'));
+  const combined = sink.join('\n');
+  const base = validateCopyTextAgainstService(serviceRaw, combined);
+  const forbidden = options?.forbiddenPhrases?.filter(
+    (x) => typeof x === 'string' && norm(x).length >= 2,
+  );
+  const fr =
+    forbidden && forbidden.length > 0
+      ? validateForbiddenPhrases(combined, forbidden)
+      : [];
+  return {
+    ok: base.ok && fr.length === 0,
+    reasons: [...base.reasons, ...fr],
+  };
 }
 
 export function validateFvCatch(
   serviceRaw: string,
   headline: string,
   subheadline: string,
+  options?: LpCopyPackValidateOptions,
 ): LpCopyValidationResult {
-  return validateCopyTextAgainstService(
-    serviceRaw,
-    `${headline}\n${subheadline}`,
+  const combined = `${headline}\n${subheadline}`;
+  const base = validateCopyTextAgainstService(serviceRaw, combined);
+  const forbidden = options?.forbiddenPhrases?.filter(
+    (x) => typeof x === 'string' && norm(x).length >= 2,
   );
+  const fr =
+    forbidden && forbidden.length > 0
+      ? validateForbiddenPhrases(combined, forbidden)
+      : [];
+  return {
+    ok: base.ok && fr.length === 0,
+    reasons: [...base.reasons, ...fr],
+  };
 }
 
 export function formatValidationRepairHint(reasons: string[]): string {

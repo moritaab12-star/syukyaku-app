@@ -2,6 +2,7 @@
  * LP アンケート設問（q1〜q50）。
  * 必須15（現場系ローカル）は `app/config/local-required-questions.ts` と同期すること。
  * 生成時の「事実アンカー」は `app/config/question-roles.ts` とも整合させること。
+ * LP パック用の整形は `buildLpPackSurveyContext`（`raw-answer-suggest.ts`）で Grounding→Voice 順に最適化される。
  */
 import { isLocalFieldworkRequiredQ } from '@/app/config/local-required-questions';
 

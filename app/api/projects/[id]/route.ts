@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabase';
 import { verifyAdminRequest } from '@/lib/admin-auth';
 import { normalizeServiceName } from '@/app/lib/agent/normalize-service';
+import { assertIndustryKeyAllowedForLocalSave } from '@/app/lib/service-persona/save-gate';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -160,6 +161,20 @@ export async function PATCH(
         { ok: false, error: 'SaaS プロジェクトはこのAPIでは更新できません。' },
         { status: 400 },
       );
+    }
+
+    if (industryKeyPatch !== undefined) {
+      const personaGate = await assertIndustryKeyAllowedForLocalSave(
+        supabase,
+        'local',
+        industryKeyPatch,
+      );
+      if (personaGate.ok === false) {
+        return NextResponse.json(
+          { ok: false, error: personaGate.error },
+          { status: 400 },
+        );
+      }
     }
 
     // updated_at はマイグレーション未適用環境で落ちるため送らない。

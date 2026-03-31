@@ -182,7 +182,7 @@ ${qa}
 
 【同一グループの既存 headline（似せない）】
 ${existing}
-`;
+${(input.servicePersonaBlock ?? '').trim() ? `\n${(input.servicePersonaBlock ?? '').trim()}\n` : ''}`;
 }
 
 function priorBlock(label: string, obj: Record<string, unknown>): string {
@@ -360,7 +360,9 @@ async function generateLpUiCopyPackSingleCallLoop(
         continue;
       }
       lastParsed = parsed;
-      const v = validateLpUiCopyPack(input.service, parsed);
+      const v = validateLpUiCopyPack(input.service, parsed, {
+        forbiddenPhrases: input.servicePersonaForbiddenPhrases,
+      });
       if (v.ok) {
         return parsed;
       }
@@ -415,7 +417,9 @@ export async function generateLpUiCopyPackWithGemini(
     }
 
     lastParsed = merged;
-    const v = validateLpUiCopyPack(input.service, merged);
+    const v = validateLpUiCopyPack(input.service, merged, {
+      forbiddenPhrases: input.servicePersonaForbiddenPhrases,
+    });
     if (v.ok) {
       return merged;
     }

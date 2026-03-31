@@ -75,8 +75,15 @@ function NewProjectPageContent() {
   );
   const [targetAreas, setTargetAreas] = useState('');
   const [targetServices, setTargetServices] = useState('');
-  /** 関連LP「あわせて読みたい」用。任意。DB projects.industry_key */
+  /**
+   * 登録済み業種人格の service_key。DB projects.industry_key に保存。
+   * 有効な人格が1件以上ある環境では選択必須。
+   */
   const [industryKey, setIndustryKey] = useState('');
+  const [activePersonas, setActivePersonas] = useState<
+    { service_key: string; service_name: string }[]
+  >([]);
+  const [activePersonasLoaded, setActivePersonasLoaded] = useState(false);
 
   const [saasName, setSaasName] = useState('');
   const [saasTarget, setSaasTarget] = useState('');
@@ -159,6 +166,28 @@ function NewProjectPageContent() {
   );
 
   const supabase = createSupabaseClient();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/service-personas?active_only=1', {
+          credentials: 'include',
+        });
+        const j = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        const rows = Array.isArray(j?.rows) ? j.rows : [];
+        setActivePersonas(rows);
+      } catch {
+        if (!cancelled) setActivePersonas([]);
+      } finally {
+        if (!cancelled) setActivePersonasLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!editId) {
@@ -489,6 +518,13 @@ function NewProjectPageContent() {
 
   const saveLocalTemplateRowParsed = useCallback(
     async (parsed: ParsedInstruction): Promise<string | null> => {
+      if (activePersonas.length > 0 && !industryKey.trim()) {
+        showToast(
+          'error',
+          '業種（業種人格）を選択してください。未登録の場合は「業種JSON登録」から先に登録してください。',
+        );
+        return null;
+      }
       const parts = buildLocalSavePayload({
         singleTemplateCombo: true,
         parsedOverride: parsed,
@@ -550,6 +586,7 @@ function NewProjectPageContent() {
       variationSeedForSave,
       showToast,
       agentInstruction,
+      activePersonas.length,
     ],
   );
 
@@ -595,6 +632,13 @@ function NewProjectPageContent() {
 
   const patchLocalTemplateRow = useCallback(
     async (projectId: string, parsed: ParsedInstruction): Promise<boolean> => {
+      if (activePersonas.length > 0 && !industryKey.trim()) {
+        showToast(
+          'error',
+          '業種（業種人格）を選択してください。',
+        );
+        return false;
+      }
       const parts = buildLocalSavePayload({
         singleTemplateCombo: true,
         parsedOverride: parsed,
@@ -629,7 +673,7 @@ function NewProjectPageContent() {
         return false;
       }
     },
-    [buildLocalSavePayload, industryKey, showToast],
+    [buildLocalSavePayload, industryKey, showToast, activePersonas.length],
   );
 
   const ensureTemplateForAgentRun = useCallback(
@@ -943,6 +987,13 @@ function NewProjectPageContent() {
 
   const handleSubmitLocal = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (activePersonas.length > 0 && !industryKey.trim()) {
+      showToast(
+        'error',
+        '業種（業種人格）を選択してください。未登録の場合は「業種JSON登録」から先に登録してください。',
+      );
+      return;
+    }
     const built = buildLocalSavePayload();
     const industryKeyNorm = industryKey.trim() || null;
     const svcNorm = normalizeServiceName(
@@ -1592,17 +1643,42 @@ function NewProjectPageContent() {
                     </div>
                     <div className="mt-4 space-y-2">
                       <label className={labelClass}>
-                        業種キー（任意・関連LP用）
+                        業種（登録済み人格から選択）
                       </label>
-                      <input
-                        type="text"
-                        value={industryKey}
-                        onChange={(e) => setIndustryKey(e.target.value)}
-                        placeholder="例: garden / roof / real_estate（空欄なら service のみで関連を判定）"
-                        className={inputClass}
-                      />
+                      {!activePersonasLoaded ? (
+                        <p className="text-xs text-slate-500">
+                          業種一覧を読み込み中…
+                        </p>
+                      ) : activePersonas.length === 0 ? (
+                        <p className="rounded-xl border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-xs text-amber-100">
+                          業種が未登録です。先に{' '}
+                          <Link
+                            href="/admin/service-personas/new"
+                            className="text-sky-300 underline hover:text-sky-200"
+                          >
+                            業種JSONを登録
+                          </Link>{' '}
+                          してください。
+                        </p>
+                      ) : (
+                        <select
+                          value={industryKey}
+                          onChange={(e) => setIndustryKey(e.target.value)}
+                          required
+                          className={inputClass}
+                        >
+                          <option value="">選択してください</option>
+                          {activePersonas.map((p) => (
+                            <option key={p.service_key} value={p.service_key}>
+                              {p.service_name}（{p.service_key}）
+                            </option>
+                          ))}
+                        </select>
+                      )}
                       <p className="text-xs text-slate-500">
-                        公開LPの関連候補を分けたいときに使用。不動産トーンを付けると下記必須15チェックは保存時・公開時にスキップされます。
+                        実店舗LPでは登録済み・有効な業種のみ選択できます（DB の industry_key =
+                        service_key）。関連LPの候補分けにも使われます。不動産トーン（real_estate
+                        系キー）では下記必須15チェックが保存時・公開時にスキップされます。
                       </p>
                     </div>
                   </div>

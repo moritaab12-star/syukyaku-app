@@ -12,6 +12,14 @@ import { buildLpPackSurveyContext } from '@/app/lib/raw-answer-suggest';
 import { generateLpUiCopyPackWithGemini } from '@/app/lib/gemini-lp-ui-copy-pack';
 import { lpUiCopyHeadlineFromRow, parseLpUiCopy } from '@/app/lib/lp-ui-copy';
 import { syncLpDesignForProject } from '@/app/lib/lp-design-sync';
+import {
+  countActiveServicePersonas,
+  getActiveServicePersonaByKey,
+} from '@/app/lib/service-persona/db-server';
+import {
+  buildServicePersonaPromptBlock,
+  forbiddenPhrasesForValidation,
+} from '@/app/lib/service-persona/prompt-block';
 
 type ProjectRow = {
   id: string;
@@ -100,8 +108,34 @@ export async function runFvCatchForProject(
       ? Math.trunc(p.variation_seed)
       : 0;
 
+  const activePersonaCount = await countActiveServicePersonas(supabase);
+  if (activePersonaCount > 0 && !ik) {
+    return {
+      ok: false,
+      error:
+        '業種（業種人格）が未設定です。プロジェクトの industry_key に登録済みの service_key を設定してから再実行してください。',
+    };
+  }
+
+  const persona =
+    ik.length > 0 ? await getActiveServicePersonaByKey(supabase, ik) : null;
+  if (ik.length > 0 && !persona) {
+    return {
+      ok: false,
+      error:
+        '登録済み・有効な業種人格が見つかりません（削除または無効化された可能性があります）。管理画面の業種JSON一覧を確認してください。',
+    };
+  }
+
   const tone = resolveLpIndustryTone(ik || null, service || 'サービス');
-  const industryDescription = lpIndustryToneDescriptionForPrompt(tone);
+  let industryDescription = lpIndustryToneDescriptionForPrompt(tone);
+  if (persona?.tone?.trim()) {
+    industryDescription = `${industryDescription}\n【業種人格のトーン】${persona.tone.trim()}`;
+  }
+
+  const servicePersonaBlock = buildServicePersonaPromptBlock(persona);
+  const servicePersonaForbiddenPhrases =
+    forbiddenPhrasesForValidation(persona);
 
   const generated = await generateLpUiCopyPackWithGemini({
     area,
@@ -113,6 +147,11 @@ export async function runFvCatchForProject(
     existingHeadlinesBlock: asHeadlinesList(existingHeadlines),
     variationSeed: vs,
     editorInstruction: editorInstruction || undefined,
+    servicePersonaBlock: servicePersonaBlock || undefined,
+    servicePersonaForbiddenPhrases:
+      servicePersonaForbiddenPhrases.length > 0
+        ? servicePersonaForbiddenPhrases
+        : undefined,
   });
 
   if (!generated) {

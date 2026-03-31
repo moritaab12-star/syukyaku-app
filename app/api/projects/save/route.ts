@@ -5,6 +5,7 @@ import { detectSearchIntent } from '@/app/lib/intent';
 import { splitProjectsByAreaAndService } from '@/app/lib/projectSplit';
 import { runFvCatchForLpGroupMembersIfNeeded } from '@/app/lib/fv-catch-generation';
 import { normalizeServiceName } from '@/app/lib/agent/normalize-service';
+import { assertIndustryKeyAllowedForLocalSave } from '@/app/lib/service-persona/save-gate';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -108,6 +109,18 @@ export async function POST(request: Request) {
         .slice(2, 8)}`;
 
     const supabase = createSupabaseAdminClient();
+
+    const personaGate = await assertIndustryKeyAllowedForLocalSave(
+      supabase,
+      projectType,
+      industryKey,
+    );
+    if (personaGate.ok === false) {
+      return NextResponse.json(
+        { success: false, error: personaGate.error },
+        { status: 400 },
+      );
+    }
 
     const intent = keyword ? detectSearchIntent(keyword) : null;
 

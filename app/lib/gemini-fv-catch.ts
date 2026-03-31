@@ -31,6 +31,12 @@ export type GeminiFvCatchInput = {
    * 訴求（価格/信頼/共感など）とデザイン意図のみ。業種・事実の上書きに使わない。
    */
   editorInstruction?: string;
+  /**
+   * service_personas 由来。service・地域・アンケより**後**に置き、事実の上書き禁止を明示したブロック。
+   */
+  servicePersonaBlock?: string;
+  /** 事後検証: 禁止表現（業種人格の forbidden_words）。リトライヒントに使う */
+  servicePersonaForbiddenPhrases?: string[];
 };
 
 export type FvCatchResult = {
@@ -75,6 +81,8 @@ ${instr}
 - 指示は **訴求の型**（価格・信頼・共感・スピード・地域など）と **デザイン上の雰囲気**（重み・余白・カジュアルさ等の言語化）の解釈にだけ使う。
 `
       : '';
+
+  const personaBlock = (input.servicePersonaBlock ?? '').trim();
 
   return `あなたは日本の地域密着ランディングページのコピーライターです。
 【このプロジェクト専用のファーストビュー】用に、メイン見出し（headline）とリード文（subheadline）を1組だけ生成してください。
@@ -183,7 +191,9 @@ export async function generateFvCatchWithGemini(
       if (!headline || !subheadline) continue;
       const result = { headline, subheadline };
       lastOk = result;
-      const v = validateFvCatch(input.service, headline, subheadline);
+      const v = validateFvCatch(input.service, headline, subheadline, {
+        forbiddenPhrases: input.servicePersonaForbiddenPhrases,
+      });
       if (v.ok) return result;
       lastReasons = v.reasons;
       console.warn(

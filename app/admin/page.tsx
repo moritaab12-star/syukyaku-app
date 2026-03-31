@@ -2,7 +2,15 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Sparkles, ArrowRight, Store, Cloud, Rocket, LayoutDashboard } from 'lucide-react';
+import {
+  Sparkles,
+  ArrowRight,
+  Store,
+  Cloud,
+  Rocket,
+  LayoutDashboard,
+  Tags,
+} from 'lucide-react';
 
 export default function AdminDashboardPage() {
   return (
@@ -30,6 +38,20 @@ export default function AdminDashboardPage() {
               className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-400 transition hover:border-slate-600 hover:text-slate-200"
             >
               管理 API ログイン
+            </Link>
+            <Link
+              href="/admin/service-personas"
+              className="flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-xs text-slate-300 transition hover:bg-slate-800/60 hover:text-slate-100"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-800 text-slate-200">
+                <Tags className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="font-medium text-slate-100">業種JSON登録</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">
+                  LP 用の業種人格マスタ
+                </p>
+              </div>
             </Link>
             <Link
               href="/admin/projects"

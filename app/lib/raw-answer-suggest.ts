@@ -25,6 +25,10 @@ import {
   RAW_ANSWER_VOICE_ONLY_QUESTION_IDS,
 } from '@/app/config/question-roles';
 import { Q50_LABELS } from '@/app/admin/projects/new/questions';
+import {
+  normalizeSurveyAnswerForLpPack,
+  trimSurveyAnswerSmart,
+} from '@/app/lib/lp-pack-survey-optimize';
 import { resolveLpIndustryTone, type LpIndustryTone } from '@/app/lib/lp-industry';
 
 export type ServiceFamily =
@@ -162,34 +166,75 @@ export function buildOtherAnswersContextSnippet(
   return parts.join('\n\n');
 }
 
-/** LP 全文パック用: q1〜q50 を番号順に（空回答は省略）。設問ラベル付き。 */
-const LP_PACK_QA_MAX_PER_ANSWER = 380;
-const LP_PACK_QA_MAX_TOTAL = 14_000;
+/** LP 全文パック用: Grounding → Voice の順・バジェット分割・軽量正規化（`lp-pack-survey-optimize`） */
+const LP_PACK_GROUNDING_MAX_PER_ANSWER = 480;
+const LP_PACK_VOICE_MAX_PER_ANSWER = 320;
+const LP_PACK_GROUNDING_BUDGET = 9_500;
+const LP_PACK_VOICE_BUDGET = 4_500;
+
+function buildLpPackTierLines(
+  orderedIds: readonly string[],
+  otherAnswers: Record<string, string>,
+  maxPerAnswer: number,
+  maxTierTotal: number,
+): string[] {
+  const lines: string[] = [];
+  let tierTotal = 0;
+  for (const id of orderedIds) {
+    const key = id.trim().toLowerCase();
+    const raw = otherAnswers[id] ?? otherAnswers[key] ?? '';
+    const normalized = normalizeSurveyAnswerForLpPack(String(raw ?? ''));
+    if (!normalized) continue;
+    const trimmed = trimSurveyAnswerSmart(normalized, maxPerAnswer);
+    if (!trimmed) continue;
+    const label = Q50_LABELS[id] ?? Q50_LABELS[key] ?? id;
+    const line = `・${label}: ${trimmed}`;
+    if (tierTotal + line.length + 1 > maxTierTotal) break;
+    lines.push(line);
+    tierTotal += line.length + 1;
+  }
+  return lines;
+}
 
 export function buildLpPackSurveyContext(
   otherAnswers?: Record<string, string>,
 ): string {
   if (!otherAnswers) return '';
-  const lines: string[] = [];
-  let total = 0;
-  for (let i = 1; i <= 50; i++) {
-    const id = `q${i}`;
-    const raw = otherAnswers[id] ?? '';
-    const trimmed = trimAnswerLine(String(raw ?? ''), LP_PACK_QA_MAX_PER_ANSWER);
-    if (!trimmed) continue;
-    const label = Q50_LABELS[id] ?? id;
-    const line = `・${label}: ${trimmed}`;
-    if (total + line.length + 1 > LP_PACK_QA_MAX_TOTAL) break;
-    lines.push(line);
-    total += line.length + 1;
-  }
-  const priorityNote =
-    '【アンケートの扱い】具体的事実・数値・固有名は「入力済みの設問」のみを根拠にする。未記入の内容は捏造せず、**語彙とトピックはサービス原文の業種に合わせた一般論**で補完する。\n\n';
 
-  if (lines.length === 0) {
+  const priorityNote =
+    '【アンケートの扱い】具体的事実・数値・固有名は「入力済みの設問」のみを根拠にする。未記入の内容は捏造せず、**語彙とトピックはサービス原文の業種に合わせた一般論**で補完する。\n' +
+    '【前処理】回答文は重複文末の軽減・句点優先の切り詰めのみ行い、**事実の追加・推測はしていない**。\n\n';
+
+  const groundingLines = buildLpPackTierLines(
+    RAW_ANSWER_GROUNDING_QUESTION_IDS,
+    otherAnswers,
+    LP_PACK_GROUNDING_MAX_PER_ANSWER,
+    LP_PACK_GROUNDING_BUDGET,
+  );
+  const voiceLines = buildLpPackTierLines(
+    RAW_ANSWER_VOICE_ONLY_QUESTION_IDS,
+    otherAnswers,
+    LP_PACK_VOICE_MAX_PER_ANSWER,
+    LP_PACK_VOICE_BUDGET,
+  );
+
+  if (groundingLines.length === 0 && voiceLines.length === 0) {
     return `${priorityNote}（入力済みの設問はありません。全フィールドでサービス原文に即した表現のみ用いよ。事実の断定はしない。）`;
   }
-  return `${priorityNote}【アンケート50問（q1〜q50・入力済みのみ）】\n${lines.join('\n')}`;
+
+  const blocks: string[] = [];
+  if (groundingLines.length > 0) {
+    blocks.push(
+      `【アンケート・事実・エリア等（優先・Grounding）】\n${groundingLines.join('\n')}`,
+    );
+  }
+  if (voiceLines.length > 0) {
+    blocks.push(
+      `【アンケート・ストーリー・共感・差別化（参考・Voice）】\n${voiceLines.join('\n')}`,
+    );
+  }
+
+  return `${priorityNote}${blocks.join('\n\n')}`;
 }
 
 /** @deprecated 推定ロジックは `resolveLpIndustryTone` に集約済み */
