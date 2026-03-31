@@ -3,10 +3,19 @@
  * buildLpHtmlMarkup で参照し、未設定時は従来の定型文を使う。
  */
 
+export type LpUiServiceCard = { title: string; text: string };
+export type LpUiPriceRow = { label: string; price: string; note: string };
+export type LpUiFlowStep = { title: string; text: string };
+export type LpUiFaqItem = { q: string; a: string };
+
 export type LpUiCopy = {
   headline?: string;
   subheadline?: string;
   hero_badge_label?: string;
+  /** ヒーロー「対応エリア：…」相当の1行全文（任意・生成優先） */
+  hero_meta_line_1?: string;
+  /** ヒーロー「運営：…」相当の1行全文（任意） */
+  hero_meta_line_2?: string;
   hero_cta_primary_phone?: string;
   hero_cta_primary_web?: string;
   hero_cta_note?: string;
@@ -30,6 +39,31 @@ export type LpUiCopy = {
   trust_inline_lead?: string;
   benefit_inline_title?: string;
   benefit_inline_lead?: string;
+  /** 解決セクション見出し（本文のサービス名は別途差し込み可） */
+  solution_section_title?: string;
+  solution_lead_body?: string;
+  solution_bullets?: string[];
+  services_section_title?: string;
+  service_cards?: LpUiServiceCard[];
+  price_section_title?: string;
+  price_section_lead?: string;
+  price_table_footer_note?: string;
+  price_rows?: LpUiPriceRow[];
+  flow_section_title?: string;
+  flow_steps?: LpUiFlowStep[];
+  narrative_trust_items?: string[];
+  narrative_local_items?: string[];
+  narrative_pain_items?: string[];
+  narrative_strength_items?: string[];
+  narrative_story_items?: string[];
+  faq_items?: LpUiFaqItem[];
+  trust_review_1_text?: string;
+  trust_review_1_meta?: string;
+  trust_review_2_text?: string;
+  trust_review_2_meta?: string;
+  trust_metric_years_label?: string;
+  trust_metric_cases_label?: string;
+  trust_metric_area_label?: string;
 };
 
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -51,6 +85,63 @@ function asStringArray(v: unknown, len: number): string[] | undefined {
   return out.slice(0, len);
 }
 
+function parseServiceCards(v: unknown): LpUiServiceCard[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: LpUiServiceCard[] = [];
+  for (const x of v) {
+    if (!isObj(x)) continue;
+    const title = asTrimString(x.title);
+    const text = asTrimString(x.text);
+    if (title && text) out.push({ title, text });
+  }
+  return out.length > 0 ? out.slice(0, 3) : undefined;
+}
+
+function parsePriceRows(v: unknown): LpUiPriceRow[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: LpUiPriceRow[] = [];
+  for (const x of v) {
+    if (!isObj(x)) continue;
+    const label = asTrimString(x.label);
+    const price = asTrimString(x.price);
+    const note = asTrimString(x.note);
+    if (label && price && note) out.push({ label, price, note });
+  }
+  return out.length > 0 ? out.slice(0, 4) : undefined;
+}
+
+function parseFlowSteps(v: unknown): LpUiFlowStep[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: LpUiFlowStep[] = [];
+  for (const x of v) {
+    if (!isObj(x)) continue;
+    const title = asTrimString(x.title);
+    const text = asTrimString(x.text);
+    if (title && text) out.push({ title, text });
+  }
+  return out.length > 0 ? out.slice(0, 5) : undefined;
+}
+
+function parseFaqItems(v: unknown): LpUiFaqItem[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: LpUiFaqItem[] = [];
+  for (const x of v) {
+    if (!isObj(x)) continue;
+    const q = asTrimString(x.q ?? x.question);
+    const a = asTrimString(x.a ?? x.answer);
+    if (q && a) out.push({ q, a });
+  }
+  return out.length >= 2 ? out.slice(0, 10) : undefined;
+}
+
+function parseLenientStringList(v: unknown, max: number): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v
+    .filter((x) => typeof x === 'string' && x.trim().length > 0)
+    .map((x) => String(x).trim());
+  return out.length > 0 ? out.slice(0, max) : undefined;
+}
+
 export function parseLpUiCopy(raw: unknown): LpUiCopy | null {
   if (raw == null) return null;
   if (!isObj(raw)) return null;
@@ -61,7 +152,18 @@ export function parseLpUiCopy(raw: unknown): LpUiCopy | null {
   const copy: LpUiCopy = {};
   type LpUiCopyStringKey = Exclude<
     keyof LpUiCopy,
-    'problems_bullets' | 'diagnosis_check_items'
+    | 'problems_bullets'
+    | 'diagnosis_check_items'
+    | 'solution_bullets'
+    | 'service_cards'
+    | 'price_rows'
+    | 'flow_steps'
+    | 'faq_items'
+    | 'narrative_trust_items'
+    | 'narrative_local_items'
+    | 'narrative_pain_items'
+    | 'narrative_strength_items'
+    | 'narrative_story_items'
   >;
   const set = <K extends LpUiCopyStringKey>(k: K, key: string) => {
     const s = asTrimString(o[key]);
@@ -71,6 +173,8 @@ export function parseLpUiCopy(raw: unknown): LpUiCopy | null {
   set('headline', 'headline');
   set('subheadline', 'subheadline');
   set('hero_badge_label', 'hero_badge_label');
+  set('hero_meta_line_1', 'hero_meta_line_1');
+  set('hero_meta_line_2', 'hero_meta_line_2');
   set('hero_cta_primary_phone', 'hero_cta_primary_phone');
   set('hero_cta_primary_web', 'hero_cta_primary_web');
   set('hero_cta_note', 'hero_cta_note');
@@ -92,112 +196,73 @@ export function parseLpUiCopy(raw: unknown): LpUiCopy | null {
   set('trust_inline_lead', 'trust_inline_lead');
   set('benefit_inline_title', 'benefit_inline_title');
   set('benefit_inline_lead', 'benefit_inline_lead');
+  set('solution_section_title', 'solution_section_title');
+  set('solution_lead_body', 'solution_lead_body');
+  set('services_section_title', 'services_section_title');
+  set('price_section_title', 'price_section_title');
+  set('price_section_lead', 'price_section_lead');
+  set('price_table_footer_note', 'price_table_footer_note');
+  set('flow_section_title', 'flow_section_title');
+  set('trust_review_1_text', 'trust_review_1_text');
+  set('trust_review_1_meta', 'trust_review_1_meta');
+  set('trust_review_2_text', 'trust_review_2_text');
+  set('trust_review_2_meta', 'trust_review_2_meta');
+  set('trust_metric_years_label', 'trust_metric_years_label');
+  set('trust_metric_cases_label', 'trust_metric_cases_label');
+  set('trust_metric_area_label', 'trust_metric_area_label');
 
   if (bullets) copy.problems_bullets = bullets;
   if (checks) copy.diagnosis_check_items = checks;
 
+  const solBullets = parseLenientStringList(o.solution_bullets, 5);
+  if (solBullets) copy.solution_bullets = solBullets;
+
+  const cards = parseServiceCards(o.service_cards);
+  if (cards) copy.service_cards = cards;
+
+  const pr = parsePriceRows(o.price_rows);
+  if (pr) copy.price_rows = pr;
+
+  const fs = parseFlowSteps(o.flow_steps);
+  if (fs) copy.flow_steps = fs;
+
+  const fq = parseFaqItems(o.faq_items);
+  if (fq) copy.faq_items = fq;
+
+  const nt = parseLenientStringList(o.narrative_trust_items, 8);
+  if (nt) copy.narrative_trust_items = nt;
+  const nl = parseLenientStringList(o.narrative_local_items, 8);
+  if (nl) copy.narrative_local_items = nl;
+  const np = parseLenientStringList(o.narrative_pain_items, 8);
+  if (np) copy.narrative_pain_items = np;
+  const nst = parseLenientStringList(o.narrative_strength_items, 8);
+  if (nst) copy.narrative_strength_items = nst;
+  const nst2 = parseLenientStringList(o.narrative_story_items, 8);
+  if (nst2) copy.narrative_story_items = nst2;
+
   return Object.keys(copy).length > 0 ? copy : null;
 }
 
-const LP_UI_COPY_STRING_KEYS: (keyof LpUiCopy)[] = [
-  'headline',
-  'subheadline',
-  'hero_badge_label',
-  'hero_cta_primary_phone',
-  'hero_cta_primary_web',
-  'hero_cta_note',
-  'line_cta_label',
-  'cta_second_primary_phone',
-  'cta_second_primary_web',
-  'cta_second_title',
-  'cta_second_lead',
-  'cta_second_note',
-  'problems_title',
-  'problems_lead',
-  'diagnosis_lead',
-  'diagnosis_cta_phone',
-  'diagnosis_cta_web',
-  'consultation_lead',
-  'consultation_form_cta',
-  'consultation_note',
-  'trust_inline_title',
-  'trust_inline_lead',
-  'benefit_inline_title',
-  'benefit_inline_lead',
-];
-
-const LP_UI_COPY_ARRAY_KEYS: (keyof LpUiCopy)[] = [
-  'problems_bullets',
-  'diagnosis_check_items',
-];
-
-function lenientStringArray(v: unknown): string[] | undefined {
-  if (!Array.isArray(v)) return undefined;
-  const out = v
-    .filter((x) => typeof x === 'string' && x.trim().length > 0)
-    .map((x) => String(x).trim());
-  return out.length > 0 ? out : undefined;
-}
-
 /**
- * DB の lp_ui_copy 生値から上書き判定用に項目を取り出す。
- * 配列は 1 件以上あれば採用（parseLpUiCopy は 3 件必須のため、merge 専用）。
- */
-function extractDbLpUiCopyOverlay(raw: unknown): Partial<LpUiCopy> {
-  if (raw == null || !isObj(raw)) return {};
-  const o = raw;
-  const out: Partial<LpUiCopy> = {};
-
-  for (const k of LP_UI_COPY_STRING_KEYS) {
-    const s = asTrimString(o[k as string]);
-    if (s) (out as Record<string, string>)[k as string] = s;
-  }
-
-  const bullets = lenientStringArray(o.problems_bullets);
-  if (bullets) out.problems_bullets = bullets.slice(0, 3);
-
-  const checks = lenientStringArray(o.diagnosis_check_items);
-  if (checks) out.diagnosis_check_items = checks.slice(0, 3);
-
-  return out;
-}
-
-/**
- * mode 用静的下地（modeBase）を土台にし、DB raw に存在する項目は DB を優先する。
- * 文字列: 非空なら DB、なければ modeBase。配列: DB に 1 件以上なら DB 全体、なければ modeBase。
+ * mode 用静的下地（modeBase）を土台にし、DB raw に存在する項目は DB を優先する（浅いマージ・DB が上書き）。
  */
 export function mergeLpUiCopyModeBaseWithDb(
   modeBase: Partial<LpUiCopy>,
   dbRaw: unknown,
 ): LpUiCopy | null {
-  const db = extractDbLpUiCopyOverlay(dbRaw);
-  const out: LpUiCopy = {};
-
-  for (const k of LP_UI_COPY_STRING_KEYS) {
-    const d = db[k];
-    const b = modeBase[k];
-    const fromDb = typeof d === 'string' && d.trim().length > 0;
-    const fromBase = typeof b === 'string' && b.trim().length > 0;
-    const v = fromDb ? d!.trim() : fromBase ? (b as string).trim() : undefined;
-    if (v !== undefined) (out as Record<string, string>)[k as string] = v;
+  const db = parseLpUiCopy(dbRaw);
+  const merged: LpUiCopy = {
+    ...(modeBase as LpUiCopy),
+    ...(db ?? {}),
+  };
+  const pruned: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(merged)) {
+    if (v === undefined || v === null) continue;
+    if (typeof v === 'string' && !v.trim()) continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    pruned[k] = v;
   }
-
-  for (const k of LP_UI_COPY_ARRAY_KEYS) {
-    const d = db[k];
-    const b = modeBase[k];
-    const dbArr = Array.isArray(d) && d.length > 0 ? d : undefined;
-    const baseArr = Array.isArray(b) && b.length > 0 ? b : undefined;
-    const pick = dbArr ?? baseArr;
-    if (pick && pick.length > 0) {
-      const cleaned = pick
-        .filter((x) => typeof x === 'string' && x.trim().length > 0)
-        .map((x) => String(x).trim())
-        .slice(0, 3);
-      if (cleaned.length > 0) (out as Record<string, string[]>)[k as string] = cleaned;
-    }
-  }
-
-  return Object.keys(out).length > 0 ? out : null;
+  return Object.keys(pruned).length > 0 ? (pruned as LpUiCopy) : null;
 }
 
 /** 兄弟行の差別化用: headline のみ抽出 */

@@ -131,13 +131,17 @@ export function applyLpTemplateTextVariations(
   );
   const subheadline = pickFrom(subs, rng) ?? view.subheadline;
 
-  const faq = view.faqItems.slice();
-  const n = faq.length;
-  if (n >= 2) {
-    const est = pickFrom(ESTIMATE_FAQ, rng);
-    const areaF = pickFrom(AREA_FAQ(view.areaName), rng);
-    if (est) faq[n - 2] = { q: est.q, a: est.a };
-    if (areaF) faq[n - 1] = { q: areaF.q, a: areaF.a };
+  let faqItems = view.faqItems;
+  if (!view.skipTemplateFaqShuffle) {
+    const faq = view.faqItems.slice();
+    const n = faq.length;
+    if (n >= 2) {
+      const est = pickFrom(ESTIMATE_FAQ, rng);
+      const areaF = pickFrom(AREA_FAQ(view.areaName), rng);
+      if (est) faq[n - 2] = { q: est.q, a: est.a };
+      if (areaF) faq[n - 1] = { q: areaF.q, a: areaF.a };
+    }
+    faqItems = faq;
   }
 
   const diagPool =
@@ -147,7 +151,7 @@ export function applyLpTemplateTextVariations(
   return {
     ...view,
     subheadline,
-    faqItems: faq,
+    faqItems,
     diagnosisSectionTitleOverride,
   };
 }

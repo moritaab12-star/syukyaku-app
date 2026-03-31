@@ -11,12 +11,13 @@ import {
   type CompanyInfoDisplay,
 } from './companyInfoFormatter';
 import { detectSearchIntent, type SearchIntent } from './intent';
-import { buildRandomBlockData, type BlockData } from './lp-block-randomizer';
+import type { BlockData } from './lp-block-randomizer';
 import type { RelatedLink } from './related-links';
 import { buildPillarSlugBase, buildPillarTitle } from './pillar';
 import { deriveLpBlockSeed } from './lp-prng-seed';
 import { applyLpTemplateTextVariations } from './lp-text-variation';
 import {
+  defaultNarrativeBlockData,
   resolveLpIndustryTone,
   type LpIndustryTone,
 } from './lp-industry';
@@ -56,6 +57,8 @@ export type LpViewModel = {
   diagnosisSectionTitleOverride?: string;
   /** LP 本文の業種トーン（テンプレ文言の差し替えに使用） */
   industryTone: LpIndustryTone;
+  /** true なら seed 由来の FAQ 言い換えをスキップ（lp_ui_copy 生成FAQを守る） */
+  skipTemplateFaqShuffle?: boolean;
 };
 
 /**
@@ -183,20 +186,49 @@ export function buildLpViewModel(
 
   const intent = detectSearchIntent(opts.keywordOverride);
 
-  // 固定ゾーン: facts / 会社・エリア・サービス名の実体（raw_answers・company_info 由来）
-  // バリエーションゾーン: blockData の構成・語尾、定型 FAQ/ヒーロー補助コピー（下記 seed 駆動）
-  // seed: lp_group_id + project id + variation_seed を hash した決定値（同一なら同一 LP）
+  const mergedUi: LpUiCopy | undefined = (() => {
+    const base = opts.lpUiCopy;
+    const enh = opts.agentEnhancements;
+    if (!enh || Object.keys(enh).length === 0) return base ?? undefined;
+    return { ...(base ?? {}), ...enh };
+  })();
+
+  // ナラティブは (1) lp_ui_copy の narrative_*（Gemini・人格連動）(2) 業種ベースの定型（アンケ生文は使わない）
   const blockSeed = deriveLpBlockSeed({
     blockSeed: opts.blockSeed,
     lpGroupId: opts.lpGroupId,
     projectStableId: opts.projectStableId,
     variationSeed: opts.variationSeed,
   });
-  const blockData = buildRandomBlockData(normalized.items, {
-    seed: blockSeed,
-    perBlockMin: 2,
-    perBlockMax: 3,
-  });
+  const uEarly = mergedUi;
+  const blockData: BlockData = (() => {
+    const def = defaultNarrativeBlockData(industryTone);
+    const u = uEarly;
+    const hasAnyNarrative =
+      u?.narrative_trust_items?.length ||
+      u?.narrative_local_items?.length ||
+      u?.narrative_pain_items?.length ||
+      u?.narrative_strength_items?.length ||
+      u?.narrative_story_items?.length;
+    if (!hasAnyNarrative) return def;
+    return {
+      trustBlock: u?.narrative_trust_items?.length
+        ? u.narrative_trust_items
+        : def.trustBlock,
+      localBlock: u?.narrative_local_items?.length
+        ? u.narrative_local_items
+        : def.localBlock,
+      painBlock: u?.narrative_pain_items?.length
+        ? u.narrative_pain_items
+        : def.painBlock,
+      strengthBlock: u?.narrative_strength_items?.length
+        ? u.narrative_strength_items
+        : def.strengthBlock,
+      storyBlock: u?.narrative_story_items?.length
+        ? u.narrative_story_items
+        : def.storyBlock,
+    };
+  })();
 
   const seo = buildSeoShell(facts, {
     region: areaName,
@@ -208,8 +240,11 @@ export function buildLpViewModel(
   const cvr = buildCvrShell(facts);
 
   const trustYears =
-    facts.foundingYear?.trim() || '創業年数 非公開';
+    uEarly?.trust_metric_years_label?.trim() ||
+    facts.foundingYear?.trim() ||
+    '創業年数 非公開';
   const trustCases =
+    uEarly?.trust_metric_cases_label?.trim() ||
     (facts.achievementNumbers[0] &&
       `${facts.achievementNumbers[0]}件以上`) ||
     '累計実績 非公開';
@@ -219,6 +254,13 @@ export function buildLpViewModel(
   const priceTbdAlt = '内容により個別お見積り';
 
   const priceRows = (() => {
+    if (uEarly?.price_rows && uEarly.price_rows.length > 0) {
+      return uEarly.price_rows.map((r) => ({
+        label: r.label,
+        price: r.price,
+        note: r.note,
+      }));
+    }
     const ind = facts.industry || 'サービス';
     if (industryTone === 'garden') {
       return facts.achievementNumbers.length > 0
@@ -304,41 +346,47 @@ export function buildLpViewModel(
         ];
   })();
 
-  const faqItems: { q: string; a: string }[] = [];
-  if (facts.painKeywords[0]) {
-    const painAnswer =
-      industryTone === 'garden'
-        ? `A. はい。${facts.solutions[0] || '樹種と敷地に合わせて、剪定やお手入れの進め方をご提案します。'}`
-        : industryTone === 'reform' ||
-            industryTone === 'roof' ||
-            industryTone === 'exterior'
-          ? `A. はい。${facts.solutions[0] || '現地の状況に合わせて、工事内容とお見積もりをご提示します。'}`
-          : industryTone === 'real_estate'
-            ? `A. はい。${facts.solutions[0] || '売却・購入・賃貸のご希望に合わせ、物件条件や進め方をご提案します。'}`
-            : `A. はい。${facts.solutions[0] || 'お客様の状況に合わせてご提案します。'}`;
-    faqItems.push({
-      q: `Q. ${facts.painKeywords[0]} という悩みにも対応できますか？`,
-      a: painAnswer,
-    });
-  }
-  const estimateFaq =
-    industryTone === 'real_estate'
-      ? {
-          q: 'Q. 査定や相談に費用はかかりますか？',
-          a: 'A. 初回の査定や条件整理は無料で承ることが多いです。費用がかかるタイミングがある場合は事前にご説明します。',
-        }
-      : {
-          q: 'Q. 見積もりは無料ですか？',
-          a: 'A. はい。現地調査・お見積もりまでは無料で対応いたします。',
-        };
+  const faqItems: { q: string; a: string }[] = (() => {
+    if (uEarly?.faq_items && uEarly.faq_items.length >= 2) {
+      return uEarly.faq_items.map((x) => ({ q: x.q, a: x.a }));
+    }
+    const items: { q: string; a: string }[] = [];
+    if (facts.painKeywords[0]) {
+      const painAnswer =
+        industryTone === 'garden'
+          ? `A. はい。${facts.solutions[0] || '樹種と敷地に合わせて、剪定やお手入れの進め方をご提案します。'}`
+          : industryTone === 'reform' ||
+              industryTone === 'roof' ||
+              industryTone === 'exterior'
+            ? `A. はい。${facts.solutions[0] || '現地の状況に合わせて、工事内容とお見積もりをご提示します。'}`
+            : industryTone === 'real_estate'
+              ? `A. はい。${facts.solutions[0] || '売却・購入・賃貸のご希望に合わせ、物件条件や進め方をご提案します。'}`
+              : `A. はい。${facts.solutions[0] || 'お客様の状況に合わせてご提案します。'}`;
+      items.push({
+        q: `Q. ${facts.painKeywords[0]} という悩みにも対応できますか？`,
+        a: painAnswer,
+      });
+    }
+    const estimateFaq =
+      industryTone === 'real_estate'
+        ? {
+            q: 'Q. 査定や相談に費用はかかりますか？',
+            a: 'A. 初回の査定や条件整理は無料で承ることが多いです。費用がかかるタイミングがある場合は事前にご説明します。',
+          }
+        : {
+            q: 'Q. 見積もりは無料ですか？',
+            a: 'A. はい。現地調査・お見積もりまでは無料で対応いたします。',
+          };
 
-  faqItems.push(
-    estimateFaq,
-    {
-      q: 'Q. 対応エリアを教えてください。',
-      a: `A. 主に${areaName}周辺で対応しておりますが、詳しくはお問い合わせください。`,
-    },
-  );
+    items.push(
+      estimateFaq,
+      {
+        q: 'Q. 対応エリアを教えてください。',
+        a: `A. 主に${areaName}周辺で対応しておりますが、詳しくはお問い合わせください。`,
+      },
+    );
+    return items;
+  })();
 
   const company = normalizeCompanyInfo(opts.companyInfoRaw, {
     fallbackName: opts.fallbackName,
@@ -372,16 +420,12 @@ export function buildLpViewModel(
       return 'diagnosis' as const;
     })(),
     industryTone,
+    skipTemplateFaqShuffle: Boolean(
+      uEarly?.faq_items && uEarly.faq_items.length >= 2,
+    ),
   };
 
   let view = applyLpTemplateTextVariations(baseView, blockSeed);
-
-  const mergedUi: LpUiCopy | null | undefined = (() => {
-    const base = opts.lpUiCopy;
-    const enh = opts.agentEnhancements;
-    if (!enh || Object.keys(enh).length === 0) return base ?? undefined;
-    return { ...(base ?? {}), ...enh };
-  })();
 
   const uiH =
     typeof mergedUi?.headline === 'string' ? mergedUi.headline.trim() : '';

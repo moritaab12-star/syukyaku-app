@@ -35,6 +35,19 @@ export function buildServicePersonaPromptBlock(
   const b4 = bulletBlock('セクション構成の優先度（参考。キー欠落やJSON形式の変更は禁止）', persona.section_structure, 30);
   if (b4) lines.push('', b4);
 
+  const pj = persona.persona_json;
+  if (pj && typeof pj === 'object' && !Array.isArray(pj)) {
+    const heroRaw = (pj as Record<string, unknown>).hero_angles;
+    if (Array.isArray(heroRaw)) {
+      const hero = heroRaw
+        .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        .map((x) => x.trim())
+        .slice(0, 10);
+      const hb = bulletBlock('ヒーロー角度・訴求の軸（persona_json）', hero, 10);
+      if (hb) lines.push('', hb);
+    }
+  }
+
   const forbidden = persona.forbidden_words.filter((w) => w.length >= 2);
   if (forbidden.length > 0) {
     lines.push(

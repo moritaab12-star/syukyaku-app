@@ -2,6 +2,8 @@
  * LP 本文向けの業種トーン。`resolveLpIndustryTone` が業種解決の唯一の入口（他ファイルで独自推定しない）。
  */
 
+import type { BlockData } from '@/app/lib/lp-block-randomizer';
+
 export type LpIndustryTone =
   | 'garden'
   | 'roof'
@@ -359,6 +361,111 @@ export function lpIndustryToneDescriptionForPrompt(tone: LpIndustryTone): string
     general: '地域密着サービス（その他・未分類を含む）',
   };
   return m[tone];
+}
+
+/**
+ * アンケ回答の生文を本文に載せないときの、業種に寄せた汎用ナラティブ（2〜3行×5ブロック）。
+ * Gemini で lp_ui_copy を生成すると narrative_* で上書きされる。
+ */
+export function defaultNarrativeBlockData(tone: LpIndustryTone): BlockData {
+  const re = (): BlockData => ({
+    trustBlock: [
+      '資格や許認可に基づく説明を心がけ、契約前の重要事項は丁寧にお伝えします。',
+      'ご不明点は言葉を改めて説明し、納得いただいてから進めます。',
+    ],
+    localBlock: [
+      'エリアの特性や動向を踏まえ、現実的なご提案をいたします。',
+      '内見・現地確認の段取りも一緒に調整いたします。',
+    ],
+    painBlock: [
+      '条件が複数あり、比較や判断に時間がかかりがちです。',
+      '手続きや費用の整理を一人では難しく感じられることがあります。',
+    ],
+    strengthBlock: [
+      'ご希望を整理したうえで、無理のない選択肢をご用意します。',
+      '他社比較の観点にもお答えし、最終判断はお客様に委ねます。',
+    ],
+    storyBlock: [
+      '初めての取引でも段階を追ってご案内します。',
+      '小さなご不安でも、まずはお気軽にお問い合わせください。',
+    ],
+  });
+
+  switch (tone) {
+    case 'real_estate':
+      return re();
+    case 'garden':
+      return {
+        trustBlock: [
+          '剪定・伐採など、安全と樹木の生育を両立するようご提案します。',
+          'お見積もりの範囲と料金の考え方を事前にご説明します。',
+        ],
+        localBlock: [
+          '敷地条件や樹種に合わせて作業内容を調整します。',
+          '作業日程は天候・繁忙期を踏まえてご相談ください。',
+        ],
+        painBlock: [
+          '樹木の状態や手入れ時期が自分では判断しづらい。',
+          '費用や工期の目安を知りたい。',
+        ],
+        strengthBlock: [
+          '現地を確認し、複数の進め方から無理のないものをお選びいただけます。',
+          '不要な工事をすすめることはありません。',
+        ],
+        storyBlock: [
+          '庭まわりのお手入れは継続的にご相談いただけます。',
+          'まずは現地確認からお声がけください。',
+        ],
+      };
+    case 'reform':
+    case 'roof':
+    case 'exterior':
+      return {
+        trustBlock: [
+          '施工内容と保証の範囲を書面でご確認いただいてから着工します。',
+          '現地の状況に応じた補修の優先順位をご説明します。',
+        ],
+        localBlock: [
+          '建物の状態により工期・費用が変わる点も事前に共有します。',
+          '近隣への配慮も含め、段取りをご相談ください。',
+        ],
+        painBlock: [
+          'どこまで手を入れるべきか判断が難しい。',
+          '追加費用や見落としがないか不安。',
+        ],
+        strengthBlock: [
+          '複数の工法・プランを比較し、ご予算に合わせて整理します。',
+          '契約後のフォローについてもご説明します。',
+        ],
+        storyBlock: [
+          '修繕計画は中長期で一緒に考えることも可能です。',
+          '現地調査からお気軽にお問い合わせください。',
+        ],
+      };
+    default:
+      return {
+        trustBlock: [
+          '現地確認とお見積もりの内容を、わかりやすくご提示します。',
+          'ご説明は専門用語を避け、確認しながら進めます。',
+        ],
+        localBlock: [
+          '地域の特性を踏まえ、現実的なスケジュールをご提案します。',
+          '依頼内容に応じて柔軟に対応いたします。',
+        ],
+        painBlock: [
+          '費用や工期の見通しを立てにくい。',
+          '信頼できる相手か判断しづらい。',
+        ],
+        strengthBlock: [
+          '現状を伺い、複数の進め方からお選びいただけます。',
+          '内容が決まってから契約に進みます。',
+        ],
+        storyBlock: [
+          '検討段階でも構いません。まずはお気軽にご相談ください。',
+          '完了後のフォローもご相談に応じます。',
+        ],
+      };
+  }
 }
 
 export function getLpHtmlSectionCopy(tone: LpIndustryTone): LpHtmlSectionCopy {

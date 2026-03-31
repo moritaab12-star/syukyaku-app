@@ -219,10 +219,7 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
   })();
 
   const sectionCopy = getLpHtmlSectionCopy(view.industryTone ?? 'general');
-  const solutionLeadHtml = esc(
-    sectionCopy.solutionLead.replace(/\{area\}/g, view.areaName),
-  );
-  const servicesSectionTitle = `${esc(view.serviceName)}の${esc(sectionCopy.servicesHeadingSuffix)}`;
+  const servicesSectionTitleFallback = `${view.serviceName}の${sectionCopy.servicesHeadingSuffix}`;
   const serviceCardsHtml = sectionCopy.serviceCards
     .map(
       (c) =>
@@ -362,8 +359,12 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
         <h1 class="lp-hero__title">${esc(view.headline)}</h1>
         <p class="lp-hero__subtitle">${esc(view.subheadline)}</p>
         <div class="lp-hero__meta">
-          <span class="lp-hero__meta-item">対応エリア：${esc(view.areaName)}</span>
-          <span class="lp-hero__meta-item">運営：${esc(view.serviceName)}</span>
+          <span class="lp-hero__meta-item">${esc(
+            u?.hero_meta_line_1?.trim() || `対応エリア：${view.areaName}`,
+          )}</span>
+          <span class="lp-hero__meta-item">${esc(
+            u?.hero_meta_line_2?.trim() || `運営：${view.serviceName}`,
+          )}</span>
         </div>
         <div class="lp-hero__cta-wrap">${heroCta}${heroLine}
           <p class="lp-hero__cta-note">${esc(
@@ -401,15 +402,27 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
     </div>
   </section>`;
 
-  const solutionBulletsHtml = sectionCopy.solutionBullets
+  const solutionTitle =
+    u?.solution_section_title?.trim() ||
+    `そのお悩み、${view.serviceName}が解決します`;
+  const solutionLeadFinal =
+    u?.solution_lead_body?.trim() ||
+    sectionCopy.solutionLead.replace(/\{area\}/g, view.areaName);
+  const solutionBulletsList =
+    u?.solution_bullets &&
+    Array.isArray(u.solution_bullets) &&
+    u.solution_bullets.length > 0
+      ? u.solution_bullets
+      : sectionCopy.solutionBullets;
+  const solutionBulletsHtml = solutionBulletsList
     .map((t) => `<li class="lp-list__item">${esc(t)}</li>`)
     .join('');
 
   const solutionSection = `<section class="lp-section"${LP_REVEAL_ATTR} id="solution">
     <div class="lp-container">
-      <h2 class="lp-section__title">そのお悩み、${esc(view.serviceName)}が解決します</h2>
+      <h2 class="lp-section__title">${esc(solutionTitle)}</h2>
       <div class="lp-solution">
-        <p class="lp-solution__text">${solutionLeadHtml}</p>
+        <p class="lp-solution__text">${esc(solutionLeadFinal)}</p>
         <ul class="lp-list lp-list--check">
           ${solutionBulletsHtml}
         </ul>
@@ -417,25 +430,47 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
     </div>
   </section>`;
 
+  const servicesTitleFinalRaw =
+    u?.services_section_title?.trim() || servicesSectionTitleFallback;
+  const serviceCardsHtmlFinal =
+    u?.service_cards &&
+    Array.isArray(u.service_cards) &&
+    u.service_cards.length > 0
+      ? u.service_cards
+          .slice(0, 3)
+          .map(
+            (c) =>
+              `<article class="lp-card"><h3 class="lp-card__title">${esc(c.title)}</h3><p class="lp-card__text">${esc(c.text)}</p></article>`,
+          )
+          .join('')
+      : serviceCardsHtml;
+
   const servicesSection = `<section class="lp-section lp-section--muted"${LP_REVEAL_ATTR} id="services">
     <div class="lp-container">
-      <h2 class="lp-section__title">${servicesSectionTitle}</h2>
+      <h2 class="lp-section__title">${esc(servicesTitleFinalRaw)}</h2>
       <div class="lp-cards lp-cards--services">
-        ${serviceCardsHtml}
+        ${serviceCardsHtmlFinal}
       </div>
       ${designDiagrams.servicesAppend}
     </div>
   </section>`;
 
+  const priceTitleFinal = u?.price_section_title?.trim() || sectionCopy.priceTitle;
+  const priceLeadFinal =
+    u?.price_section_lead?.trim() || sectionCopy.priceLead;
+  const priceFooterNote =
+    u?.price_table_footer_note?.trim() ||
+    '※上記はあくまで目安です。現状を確認したうえで正式にお見積もりいたします。';
+
   const priceSection = `<section class="lp-section"${LP_REVEAL_ATTR} id="price">
     <div class="lp-container">
-      <h2 class="lp-section__title">${esc(sectionCopy.priceTitle)}</h2>
-      <p class="lp-section__lead">${esc(sectionCopy.priceLead)}</p>
+      <h2 class="lp-section__title">${esc(priceTitleFinal)}</h2>
+      <p class="lp-section__lead">${esc(priceLeadFinal)}</p>
       <div class="lp-price-table">
         <div class="lp-price-table__head">${priceHeadHtml}</div>
         <div class="lp-price-table__body">${priceRows}</div>
       </div>
-      <p class="lp-price-table__note">※上記はあくまで目安です。現状を確認したうえで正式にお見積もりいたします。</p>
+      <p class="lp-price-table__note">${esc(priceFooterNote)}</p>
     </div>
   </section>`;
 
@@ -449,21 +484,48 @@ export function buildLpHtmlMarkup(input: LpToHtmlInput): {
       <div class="lp-trust-metrics">
         <div class="lp-trust-metric"><div class="lp-trust-metric__value">${esc(view.trustYears)}</div><div class="lp-trust-metric__label">創業年数</div></div>
         <div class="lp-trust-metric"><div class="lp-trust-metric__value">${esc(view.trustCases)}</div><div class="lp-trust-metric__label">累計対応件数</div></div>
-        <div class="lp-trust-metric"><div class="lp-trust-metric__value">${esc(view.areaName)}</div><div class="lp-trust-metric__label">対応エリア</div></div>
+        <div class="lp-trust-metric"><div class="lp-trust-metric__value">${esc(
+          u?.trust_metric_area_label?.trim() || view.areaName,
+        )}</div><div class="lp-trust-metric__label">対応エリア</div></div>
       </div>
       <div class="lp-reviews">
-        <div class="lp-review"><div class="lp-review__rating">★★★★★</div><p class="lp-review__text">「問い合わせから完了まで、とても丁寧に対応してもらえました。」</p><p class="lp-review__meta">${esc(view.areaName)} / 個人のお客様</p></div>
-        <div class="lp-review"><div class="lp-review__rating">★★★★☆</div><p class="lp-review__text">「料金やスケジュールも分かりやすく、安心して依頼できました。」</p><p class="lp-review__meta">${esc(view.areaName)} / 事業者様</p></div>
+        <div class="lp-review"><div class="lp-review__rating">★★★★★</div><p class="lp-review__text">「${esc(
+          u?.trust_review_1_text?.trim() ||
+            '問い合わせから完了まで、とても丁寧に対応してもらえました。',
+        )}」</p><p class="lp-review__meta">${esc(
+          u?.trust_review_1_meta?.trim() ||
+            `${view.areaName} / 個人のお客様`,
+        )}</p></div>
+        <div class="lp-review"><div class="lp-review__rating">★★★★☆</div><p class="lp-review__text">「${esc(
+          u?.trust_review_2_text?.trim() ||
+            '料金やスケジュールも分かりやすく、安心して依頼できました。',
+        )}」</p><p class="lp-review__meta">${esc(
+          u?.trust_review_2_meta?.trim() ||
+            `${view.areaName} / 事業者様`,
+        )}</p></div>
       </div>
       ${designDiagrams.trustAppend}
     </div>
   </section>`;
 
+  const flowStepsHtmlFinal =
+    u?.flow_steps && u.flow_steps.length > 0
+      ? u.flow_steps
+          .slice(0, 5)
+          .map(
+            (step, i) =>
+              `<li class="lp-flow__step"><div class="lp-flow__step-number">${i + 1}</div><div class="lp-flow__step-body"><h3 class="lp-flow__step-title">${esc(step.title)}</h3><p class="lp-flow__step-text">${esc(step.text)}</p></div></li>`,
+          )
+          .join('')
+      : flowStepsHtml;
+  const flowTitleFinal =
+    u?.flow_section_title?.trim() || sectionCopy.flowTitle;
+
   const flowSection = `<section class="lp-section"${LP_REVEAL_ATTR} id="flow">
     <div class="lp-container">
-      <h2 class="lp-section__title">${esc(sectionCopy.flowTitle)}</h2>
+      <h2 class="lp-section__title">${esc(flowTitleFinal)}</h2>
       <ol class="lp-flow">
-        ${flowStepsHtml}
+        ${flowStepsHtmlFinal}
       </ol>
     </div>
   </section>`;
